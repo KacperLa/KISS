@@ -30,3 +30,7 @@ Use JDK 21 and Android SDK 36 with upstream Gradle wrapper:
 ./gradlew lint testDebugUnitTest assembleDebug
 ```
 See upstream `qa-suite.md` plus the checks above. CI builds on the prototype branch. This work does not install the APK, choose a default launcher, or grant any permissions.
+
+## Third prototype adjustments
+
+Quick controls now offers App columns: Auto, 1 column, or 2 columns. Auto follows available list width; explicit choices persist across folding and rotation without shrinking font size. App names retain their full accessibility labels and visual trailing fade. Notification action buttons align to the trailing edge.

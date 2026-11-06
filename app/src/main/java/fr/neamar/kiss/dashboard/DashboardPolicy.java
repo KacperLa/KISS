@@ -11,6 +11,9 @@ public final class DashboardPolicy {
         return Math.max(0, Math.min(25, (int) (y / height * 26)));
     }
     public static int appColumns(int availableWidthDp) { return availableWidthDp >= 600 ? 2 : 1; }
+    public static int appColumns(int availableWidthDp, int override) {
+        return override == 1 || override == 2 ? override : appColumns(availableWidthDp);
+    }
     public static char initialLetter(String name) {
         if (name == null || name.isEmpty()) return 0;
         String normalized = java.text.Normalizer.normalize(name, java.text.Normalizer.Form.NFD);

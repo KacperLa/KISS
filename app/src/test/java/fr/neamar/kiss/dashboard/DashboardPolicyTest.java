@@ -21,6 +21,13 @@ class DashboardPolicyTest {
         assertEquals(2, DashboardPolicy.appColumns(600));
         assertEquals(2, DashboardPolicy.appColumns(900));
     }
+    @Test void columnOverridePersistsUserChoiceWithoutChangingAuto() {
+        assertEquals(2, DashboardPolicy.appColumns(400, 2));
+        assertEquals(1, DashboardPolicy.appColumns(900, 1));
+        assertEquals(1, DashboardPolicy.appColumns(400, 0));
+        assertEquals(2, DashboardPolicy.appColumns(900, 0));
+        assertEquals(1, DashboardPolicy.appColumns(400, 99));
+    }
     @Test void indexNormalizesLatinInitialsWithoutHidingOtherNames() {
         assertEquals('M', DashboardPolicy.initialLetter("Messages"));
         assertEquals('E', DashboardPolicy.initialLetter("École"));

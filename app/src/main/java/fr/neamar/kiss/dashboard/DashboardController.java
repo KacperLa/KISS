@@ -187,7 +187,7 @@ public final class DashboardController {
             notificationHeader.addView(text(appName + (title == null ? "" : " · " + title), textSp, true), new LinearLayout.LayoutParams(0, -2, 1));
             card.addView(notificationHeader);
             if (body != null) card.addView(text(body, textSp, false));
-            LinearLayout actions = row();
+            LinearLayout actions = row(); actions.setGravity(Gravity.END);
             if (n.contentIntent != null) actions.addView(button("Open", () -> send(n.contentIntent)));
             if (sbn.isClearable()) actions.addView(button("Dismiss", () -> DashboardNotifications.dismiss(sbn.getKey())));
             card.addView(actions); addCard(card);
@@ -328,7 +328,7 @@ public final class DashboardController {
     private int appColumns() {
         int width = root.getWidth() > 0 ? root.getWidth() - root.getPaddingLeft() - root.getPaddingRight() - dp(56)
             : dp(activity.getResources().getConfiguration().screenWidthDp - 80);
-        return DashboardPolicy.appColumns(Math.round(width / activity.getResources().getDisplayMetrics().density));
+        return DashboardPolicy.appColumns(Math.round(width / activity.getResources().getDisplayMetrics().density), preferences.getInt("app-columns", 0));
     }
     private void renderSearchResults() {
         if (!searchMode || content == null || query == null) return;
@@ -412,6 +412,19 @@ public final class DashboardController {
             public void onStartTrackingTouch(SeekBar bar) { }
             public void onStopTrackingTouch(SeekBar bar) { }
         }); controls.addView(size);
+        String[] columnNames = {"Auto", "1 column", "2 columns"};
+        int columnMode = preferences.getInt("app-columns", 0);
+        if (columnMode < 0 || columnMode > 2) columnMode = 0;
+        TextView columnButton = button("App columns · " + columnNames[columnMode], () -> {
+            int selected = preferences.getInt("app-columns", 0);
+            new AlertDialog.Builder(activity).setTitle("App columns")
+                .setSingleChoiceItems(columnNames, selected >= 0 && selected <= 2 ? selected : 0, (choice, which) -> {
+                    preferences.edit().putInt("app-columns", which).apply();
+                    choice.dismiss();
+                    if (controlsDialog != null) controlsDialog.dismiss();
+                }).setNegativeButton("Cancel", null).show();
+        });
+        controls.addView(columnButton);
         controls.addView(button("Search apps", () -> { if (controlsDialog != null) controlsDialog.dismiss(); showSearch(); }));
         controls.addView(button("KISS settings", () -> open(new Intent(activity, SettingsActivity.class))));
         controls.addView(button("More system settings", () -> open(new Intent(Settings.ACTION_SETTINGS))));
