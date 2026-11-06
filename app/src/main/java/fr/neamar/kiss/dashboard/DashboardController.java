@@ -746,7 +746,7 @@ public final class DashboardController {
             if (action == MotionEvent.ACTION_DOWN) {
                 if (getChildCount() < 5 || event.getY() >= getChildAt(4).getTop()) return super.dispatchTouchEvent(event);
                 pointer = event.getPointerId(0); selected = -1; railDragging = true;
-                scroll.fling(0); // Replace any existing fling before direct slider jumps.
+                scroll.fling(0); scroll.computeScroll(); // Settle the zero-velocity frame before direct slider jumps.
                 getParent().requestDisallowInterceptTouchEvent(true);
                 selectAt(event.getY()); return true;
             }
