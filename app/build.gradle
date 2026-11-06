@@ -20,8 +20,8 @@ android {
         targetSdk {
             version = release(36)
         }
-        versionCode 232
-        versionName "3.26.0-accessible.9"
+        versionCode 233
+        versionName "3.26.0-accessible.10"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -222,7 +222,8 @@ public final class DashboardController {
             catch (PackageManager.NameNotFoundException ignored) { }
             LinearLayout notificationHeader = row();
             ImageView notificationIcon = new ImageView(activity);
-            notificationIcon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            notificationIcon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+            notificationIcon.setContentDescription("Notification from " + appName);
             notificationIcon.setScaleType(ImageView.ScaleType.FIT_CENTER);
             android.graphics.drawable.Drawable icon = null;
             try { icon = activity.getPackageManager().getApplicationIcon(sbn.getPackageName()); }
@@ -233,7 +234,7 @@ public final class DashboardController {
             notificationIcon.setImageDrawable(icon != null ? icon : activity.getPackageManager().getDefaultActivityIcon());
             LinearLayout.LayoutParams iconLayout = new LinearLayout.LayoutParams(dp(40), dp(40));
             iconLayout.setMarginEnd(dp(4)); notificationHeader.addView(notificationIcon, iconLayout);
-            notificationHeader.addView(text(appName + (title == null ? "" : " · " + title), textSp, true), new LinearLayout.LayoutParams(0, -2, 1));
+            if (title != null) notificationHeader.addView(text(title, textSp, true), new LinearLayout.LayoutParams(0, -2, 1));
             card.addView(notificationHeader);
             if (body != null) {
                 TextView bodyView = text(body, textSp, false);
