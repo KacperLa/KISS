@@ -36,3 +36,7 @@ See upstream `qa-suite.md` plus the checks above. CI builds on the prototype bra
 Quick controls now offers App columns: Auto, 1 column, or 2 columns. Auto follows available list width; explicit choices persist across folding and rotation without shrinking font size. App names retain their full accessibility labels and visual trailing fade. Notification action buttons align to the trailing edge.
 
 The search input uses the entire header width with no back icon. Android Home returns to the dashboard when this app is the selected default launcher. Standard Back first dismisses the keyboard where Android consumes it, then returns from search. No default launcher setting is changed by the build.
+
+Notification body previews default to four rendered lines. Show more/Show less appears only when the rendered text overflows. Expansion is kept in memory by notification key across refreshes, not persisted on disk. Expanding does not launch the source app.
+
+Tap a notification card to open its content intent. Swipe horizontally at least 72dp to dismiss clearable notifications; an accessible Dismiss notification action is also provided. Vertical gestures remain feed scrolling. Expand and app-action controls handle their own taps. Generic Open/Dismiss buttons are removed. Non-reply app-provided actions are shown right-aligned; inline reply requiring RemoteInput remains unsupported.

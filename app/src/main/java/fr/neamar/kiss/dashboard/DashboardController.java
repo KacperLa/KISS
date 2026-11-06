@@ -52,6 +52,7 @@ public final class DashboardController {
     private AlertDialog controlsDialog;
     private final Map<Character, View> alphabetTargets = new HashMap<>();
     private int renderedColumns = 1;
+    private final Set<String> expandedNotifications = new HashSet<>();
     private boolean navigatingTag;
     private boolean searchMode;
     private boolean registered;
@@ -188,14 +189,77 @@ public final class DashboardController {
             iconLayout.setMarginEnd(dp(4)); notificationHeader.addView(notificationIcon, iconLayout);
             notificationHeader.addView(text(appName + (title == null ? "" : " · " + title), textSp, true), new LinearLayout.LayoutParams(0, -2, 1));
             card.addView(notificationHeader);
-            if (body != null) card.addView(text(body, textSp, false));
+            if (body != null) {
+                TextView bodyView = text(body, textSp, false);
+                boolean expanded = expandedNotifications.contains(sbn.getKey());
+                bodyView.setMaxLines(expanded ? Integer.MAX_VALUE : 4);
+                bodyView.setEllipsize(expanded ? null : android.text.TextUtils.TruncateAt.END);
+                card.addView(bodyView);
+                TextView toggle = button(expanded ? "Show less" : "Show more", () -> {
+                    if (expandedNotifications.contains(sbn.getKey())) expandedNotifications.remove(sbn.getKey());
+                    else expandedNotifications.add(sbn.getKey());
+                    renderHome();
+                });
+                toggle.setContentDescription((expanded ? "Collapse" : "Expand") + " notification from " + appName);
+                toggle.setVisibility(View.GONE); card.addView(toggle);
+                bodyView.post(() -> {
+                    android.text.Layout layout = bodyView.getLayout();
+                    if (layout == null || !bodyView.isAttachedToWindow()) return;
+                    int lines = layout.getLineCount();
+                    boolean overflow = lines > 4 || (lines > 0 && layout.getEllipsisCount(lines - 1) > 0);
+                    toggle.setVisibility(overflow ? View.VISIBLE : View.GONE);
+                });
+            }
             LinearLayout actions = row(); actions.setGravity(Gravity.END);
-            if (n.contentIntent != null) actions.addView(button("Open", () -> send(n.contentIntent)));
-            if (sbn.isClearable()) actions.addView(button("Dismiss", () -> DashboardNotifications.dismiss(sbn.getKey())));
-            card.addView(actions); addCard(card);
+            if (n.actions != null) for (Notification.Action action : n.actions) {
+                if (action.actionIntent == null || action.getRemoteInputs() != null) continue;
+                actions.addView(button(String.valueOf(action.title), () -> send(action.actionIntent)));
+            }
+            if (actions.getChildCount() > 0) card.addView(actions);
+            attachNotificationGestures(card, sbn);
+            addCard(card);
         }
         renderTasks(); renderCalendar(); renderDock();
         scroll.post(() -> scroll.scrollTo(0, offset));
+    }
+    private void attachNotificationGestures(View card, StatusBarNotification notification) {
+        PendingIntent intent = notification.getNotification().contentIntent;
+        if (intent != null) card.setOnClickListener(v -> send(intent));
+        if (!notification.isClearable()) return;
+        androidx.core.view.ViewCompat.addAccessibilityAction(card, "Dismiss notification", (view, arguments) -> {
+            expandedNotifications.remove(notification.getKey());
+            DashboardNotifications.dismiss(notification.getKey()); return true;
+        });
+        card.setClickable(true);
+        card.setOnTouchListener(new View.OnTouchListener() {
+            float startX, startY; boolean horizontal, vertical;
+            @Override public boolean onTouch(View view, MotionEvent event) {
+                switch (event.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN:
+                        startX = event.getX(); startY = event.getY(); horizontal = false; vertical = false; return false;
+                    case MotionEvent.ACTION_MOVE:
+                        float dx = event.getX() - startX, dy = event.getY() - startY;
+                        if (!horizontal && !vertical) {
+                            if (Math.abs(dy) > dp(12) && Math.abs(dy) >= Math.abs(dx)) vertical = true;
+                            else if (Math.abs(dx) > dp(24) && Math.abs(dx) > Math.abs(dy) * 1.5f) horizontal = true;
+                        }
+                        if (horizontal) { view.getParent().requestDisallowInterceptTouchEvent(true); view.setPressed(false); }
+                        return horizontal;
+                    case MotionEvent.ACTION_UP:
+                        if (horizontal) {
+                            view.getParent().requestDisallowInterceptTouchEvent(false); view.setPressed(false);
+                            if (Math.abs(event.getX() - startX) >= dp(72)) {
+                                expandedNotifications.remove(notification.getKey()); DashboardNotifications.dismiss(notification.getKey());
+                            }
+                            return true;
+                        }
+                        return false;
+                    case MotionEvent.ACTION_CANCEL:
+                        view.getParent().requestDisallowInterceptTouchEvent(false); horizontal = false; view.setPressed(false); return false;
+                    default: return false;
+                }
+            }
+        });
     }
     private void renderTasks() {
         LinearLayout card = column(); card.addView(text("Tasks", textSp, true));
