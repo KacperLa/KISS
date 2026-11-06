@@ -58,6 +58,7 @@ public final class DashboardController {
     private boolean searchMode;
     private boolean registered;
     private boolean resumed;
+    private View notificationTouchOwner;
     private float textSp;
     private final java.util.concurrent.ExecutorService calendarExecutor = java.util.concurrent.Executors.newSingleThreadExecutor();
     private List<CalendarEntry> calendarLines = Collections.singletonList(new CalendarEntry("Loading calendar…", null));
@@ -136,7 +137,7 @@ public final class DashboardController {
         loadCalendar();
         if (!searchMode) renderHome();
     }
-    public void pause() { resumed = false; root.removeCallbacks(refreshHome); if (registered) { activity.unregisterReceiver(receiver); registered = false; } }
+    public void pause() { resumed = false; notificationTouchOwner = null; root.removeCallbacks(refreshHome); if (registered) { activity.unregisterReceiver(receiver); registered = false; } }
     public void destroy() { destroyed = true; pause(); calendarExecutor.shutdownNow(); activity.adapter.unregisterDataSetObserver(observer); }
     public boolean back() { if (searchMode) { showHome(); return true; } return activity.isKissDefaultLauncher(); }
     public void showHome() {
@@ -153,8 +154,9 @@ public final class DashboardController {
     }
     private void renderHome() {
         if (searchMode || content == null) return;
-        int offset = scroll.getScrollY(); content.removeAllViews();
         KeyguardManager keyguard = (KeyguardManager) activity.getSystemService(Context.KEYGUARD_SERVICE);
+        if (notificationTouchOwner != null && !keyguard.isKeyguardLocked()) return;
+        int offset = scroll.getScrollY(); content.removeAllViews();
         if (keyguard.isKeyguardLocked()) {
             if (dockView != null) root.removeView(dockView);
             content.addView(text("Unlock to view notifications", textSp, true)); return;
@@ -344,6 +346,7 @@ public final class DashboardController {
         @Override public boolean onInterceptTouchEvent(MotionEvent event) {
             if (!notification.isClearable()) return super.onInterceptTouchEvent(event);
             if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                notificationTouchOwner = this;
                 animate().cancel(); setTranslationX(0); setAlpha(1f);
                 startX = event.getRawX(); startY = event.getRawY(); horizontal = false; vertical = false;
                 getParent().requestDisallowInterceptTouchEvent(true);
@@ -352,14 +355,19 @@ public final class DashboardController {
                 if (horizontal) return true;
             } else if (event.getActionMasked() == MotionEvent.ACTION_UP || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
                 getParent().requestDisallowInterceptTouchEvent(false);
+                if (!horizontal) finishGesture();
             }
             return super.onInterceptTouchEvent(event);
+        }
+        private void finishGesture() {
+            if (notificationTouchOwner == this) notificationTouchOwner = null;
+            root.removeCallbacks(refreshHome); root.postDelayed(refreshHome, 400);
         }
         private void classify(MotionEvent event) {
             if (horizontal || vertical) return;
             float dx = Math.abs(event.getRawX() - startX), dy = Math.abs(event.getRawY() - startY);
             if (dx > slop && dx > dy * 1.5f) horizontal = true;
-            else if (dy > slop) { vertical = true; getParent().requestDisallowInterceptTouchEvent(false); }
+            else if (dy > slop) { vertical = true; getParent().requestDisallowInterceptTouchEvent(false); finishGesture(); }
         }
         @Override public boolean onTouchEvent(MotionEvent event) {
             if (!notification.isClearable()) return super.onTouchEvent(event);
@@ -371,19 +379,20 @@ public final class DashboardController {
                 setAlpha(Math.max(0.35f, 1f - Math.abs(drag) / Math.max(1, getWidth()) * 0.65f));
                 if (event.getActionMasked() == MotionEvent.ACTION_UP) {
                     getParent().requestDisallowInterceptTouchEvent(false);
-                    if (Math.abs(drag) >= Math.max(dp(72), getWidth() * 0.25f)) {
+                    if (NotificationSwipePolicy.shouldDismiss(drag, getWidth(), dp(72))) {
                         animate().translationX(Math.copySign(getWidth(), drag)).alpha(0f).setDuration(180).withEndAction(() -> {
-                            expandedNotifications.remove(notification.getKey()); DashboardNotifications.dismiss(notification.getKey());
+                            expandedNotifications.remove(notification.getKey()); DashboardNotifications.dismiss(notification.getKey()); finishGesture();
                             // Restore if the provider rejects dismissal; a normal refresh removes accepted dismissals.
                             postDelayed(() -> { if (isAttachedToWindow()) animate().translationX(0).alpha(1f).setDuration(160).start(); }, 400);
                         }).start();
-                    } else animate().translationX(0).alpha(1f).setDuration(160).start();
+                    } else animate().translationX(0).alpha(1f).setDuration(160).withEndAction(this::finishGesture).start();
                 } else if (event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
                     getParent().requestDisallowInterceptTouchEvent(false);
-                    animate().translationX(0).alpha(1f).setDuration(160).start();
+                    animate().translationX(0).alpha(1f).setDuration(160).withEndAction(this::finishGesture).start();
                 }
                 return true;
             }
+            if (event.getActionMasked() == MotionEvent.ACTION_UP || event.getActionMasked() == MotionEvent.ACTION_CANCEL) finishGesture();
             return super.onTouchEvent(event);
         }
         @Override public boolean performClick() { return super.performClick(); }
