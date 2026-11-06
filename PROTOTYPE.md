@@ -56,3 +56,7 @@ The A–Z index has no persistent background or shadow. Its full 56dp touch regi
 ## Media icon and swipe animation fixes
 
 Media icon lookup now uses the source application context, recognizes MediaStyle/compact-actions metadata, and remains icon-only if an icon is missing. Resource names are preferred for fallback transport symbols; unknown controls use a generic more icon with the original accessible label/intent. Long-press reveals the supplied label. Clearable cards track horizontal finger movement, fade and animate out on dismissal, or snap back on short/canceled drags. Non-clearable cards remain stationary.
+
+## Unified Home feed
+
+Home contains notifications, tasks, upcoming calendar, then all apps alphabetically in one continuous scroll. Its fixed right rail has section jumps, A–Z sliding navigation and a bottom magnifier that opens typed KISS search. Search no longer shows recent apps or an alphabet rail. The favorites/recent-app dock is unchanged. Home no longer intercepts pull-down to open search, leaving normal system shade gestures alone. Adaptive app columns and full accessible app labels remain.

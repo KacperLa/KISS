@@ -49,6 +49,7 @@ public final class DashboardController {
     private TextView letterBubble;
     private View dockView;
     private View alphabetRail;
+    private View notificationTarget, tasksTarget, calendarTarget;
     private FrameLayout searchFrame;
     private AlertDialog controlsDialog;
     private final Map<Character, View> alphabetTargets = new HashMap<>();
@@ -99,7 +100,7 @@ public final class DashboardController {
             return insets;
         });
         root.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
-            if (searchMode && appColumns() != renderedColumns) root.post(this::renderSearchResults);
+            if (appColumns() != renderedColumns) root.post(() -> { if (searchMode) renderSearchResults(); else renderHome(); });
         });
         activity.adapter.registerDataSetObserver(observer);
         showHome();
@@ -147,25 +148,45 @@ public final class DashboardController {
         activity.searchEditText.setText("");
         ((InputMethodManager) activity.getSystemService(Context.INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(root.getWindowToken(), 0);
         root.removeAllViews();
-        scroll = new PullDownScrollView(activity); content = column(); scroll.addView(content);
-        androidx.core.view.ViewCompat.addAccessibilityAction(scroll, "Open search", (view, arguments) -> { showSearch(); return true; });
-        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        searchFrame = new FrameLayout(activity); LinearLayout homeBody = row();
+        scroll = new ScrollView(activity); content = column(); scroll.addView(content);
+        homeBody.addView(scroll, new LinearLayout.LayoutParams(0, -1, 1));
+        LinearLayout rail = column();
+        rail.addView(iconButton(android.R.drawable.ic_dialog_info, "Jump to notifications", () -> jumpToSection(notificationTarget)), new LinearLayout.LayoutParams(dp(56), dp(48)));
+        rail.addView(iconButton(android.R.drawable.checkbox_on_background, "Jump to tasks", () -> jumpToSection(tasksTarget)), new LinearLayout.LayoutParams(dp(56), dp(48)));
+        rail.addView(iconButton(android.R.drawable.ic_menu_my_calendar, "Jump to calendar", () -> jumpToSection(calendarTarget)), new LinearLayout.LayoutParams(dp(56), dp(48)));
+        alphabetRail = new AlphabetRail(activity); rail.addView(alphabetRail, new LinearLayout.LayoutParams(dp(56), 0, 1));
+        rail.addView(iconButton(android.R.drawable.ic_menu_search, "Search apps and more", this::showSearch), new LinearLayout.LayoutParams(dp(56), dp(56)));
+        homeBody.addView(rail, new LinearLayout.LayoutParams(dp(56), -1));
+        searchFrame.addView(homeBody, new FrameLayout.LayoutParams(-1, -1));
+        letterBubble = text("", textSp + 24, true); letterBubble.setTextColor(BG); letterBubble.setBackground(background(ACCENT));
+        letterBubble.setGravity(Gravity.CENTER); letterBubble.setVisibility(View.GONE); letterBubble.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        FrameLayout.LayoutParams bubbleLayout = new FrameLayout.LayoutParams(dp(100), dp(100), Gravity.END | Gravity.CENTER_VERTICAL); bubbleLayout.setMarginEnd(dp(64));
+        searchFrame.addView(letterBubble, bubbleLayout);
+        root.addView(searchFrame, new LinearLayout.LayoutParams(-1, 0, 1));
         renderHome();
+    }
+    private void jumpToSection(View target) {
+        if (searchMode || target == null || !target.isAttachedToWindow()) return;
+        letterBubble.setVisibility(View.GONE);
+        scroll.post(() -> scroll.smoothScrollTo(0, target.getTop()));
     }
     private void renderHome() {
         if (searchMode || content == null) return;
         KeyguardManager keyguard = (KeyguardManager) activity.getSystemService(Context.KEYGUARD_SERVICE);
         if (notificationTouchOwner != null && !keyguard.isKeyguardLocked()) return;
-        int offset = scroll.getScrollY(); content.removeAllViews();
+        int offset = scroll.getScrollY(); content.removeAllViews(); alphabetTargets.clear();
+        notificationTarget = tasksTarget = calendarTarget = null; renderedColumns = appColumns();
         if (keyguard.isKeyguardLocked()) {
             if (dockView != null) root.removeView(dockView);
             content.addView(text("Unlock to view notifications", textSp, true)); return;
         }
+        notificationTarget = text("Notifications", textSp, true); content.addView(notificationTarget);
         StatusBarNotification[] notifications = DashboardNotifications.active();
         Map<String, Integer> ranks = DashboardNotifications.ranks(notifications);
         Arrays.sort(notifications, Comparator.comparingInt(n -> ranks.getOrDefault(n.getKey(), Integer.MAX_VALUE)));
         if (notifications.length == 0) {
-            LinearLayout card = column(); card.addView(text("Notifications", textSp, true));
+            LinearLayout card = column();
             card.addView(text("No available notifications. Notification access is optional and keeps content on this phone.", textSp, false));
             card.addView(button("Review notification access", () -> open(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)))); addCard(card);
         }
@@ -250,7 +271,9 @@ public final class DashboardController {
             attachNotificationGestures(card, sbn);
             addCard(card);
         }
-        renderTasks(); renderCalendar(); renderDock();
+        int sectionIndex = content.getChildCount(); renderTasks(); tasksTarget = content.getChildAt(sectionIndex);
+        sectionIndex = content.getChildCount(); renderCalendar(); calendarTarget = content.getChildAt(sectionIndex);
+        renderAllApps(); renderDock();
         scroll.post(() -> scroll.scrollTo(0, offset));
     }
     private int mediaFallbackIcon(Notification.Action action, Context sourceContext) {
@@ -526,7 +549,7 @@ public final class DashboardController {
         searchFrame = new FrameLayout(activity); LinearLayout body = row();
         scroll = new ScrollView(activity); content = column(); scroll.addView(content);
         body.addView(scroll, new LinearLayout.LayoutParams(0, -1, 1));
-        alphabetRail = new AlphabetRail(activity); body.addView(alphabetRail, new LinearLayout.LayoutParams(dp(56), -1));
+        alphabetRail = null;
         searchFrame.addView(body, new FrameLayout.LayoutParams(-1, -1));
         letterBubble = text("", textSp + 24, true); letterBubble.setTextColor(BG); letterBubble.setBackground(background(ACCENT));
         letterBubble.setGravity(Gravity.CENTER); letterBubble.setVisibility(View.GONE); letterBubble.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
@@ -538,7 +561,7 @@ public final class DashboardController {
             public void onTextChanged(CharSequence s, int start, int before, int count) {
                 navigatingTag = false; activity.searchEditText.setText(s);
                 if (s.length() == 0) { activity.showHistory(); renderSearchResults(); }
-                else alphabetRail.setVisibility(View.GONE);
+
             }
             public void afterTextChanged(Editable s) { }
         });
@@ -568,27 +591,23 @@ public final class DashboardController {
         boolean wide = isWideAppLayout();
         return DashboardPolicy.columnsForLayout(wide, preferences.getInt(columnPreferenceKey(), 0));
     }
+    private void renderAllApps() {
+        content.addView(text("All apps", textSp, true));
+        List<AppPojo> available = data().getApplicationsWithoutExcluded();
+        if (available == null) { content.addView(text("Loading apps…", textSp, false)); return; }
+        List<AppPojo> apps = new ArrayList<>(available);
+        java.text.Collator collator = java.text.Collator.getInstance();
+        apps.sort((a, b) -> collator.compare(a.getName(), b.getName()));
+        List<Result<?>> results = new ArrayList<>();
+        for (AppPojo app : apps) if (!app.isDisabled()) results.add(Result.fromPojo(activity, app));
+        addAppGrid(results, true);
+    }
     private void renderSearchResults() {
         if (!searchMode || content == null || query == null) return;
         content.removeAllViews(); alphabetTargets.clear(); renderedColumns = appColumns();
-        boolean browse = query.length() == 0 && !navigatingTag;
-        alphabetRail.setVisibility(browse ? View.VISIBLE : View.GONE);
         letterBubble.setVisibility(View.GONE);
-        if (browse) {
-            List<AppPojo> recent = recentApps(6);
-            if (!recent.isEmpty()) {
-                content.addView(text("Recent", textSp, true));
-                List<Result<?>> results = new ArrayList<>(); for (AppPojo app : recent) results.add(Result.fromPojo(activity, app));
-                addAppGrid(results, false);
-            }
-            content.addView(text("All apps", textSp, true));
-            List<AppPojo> available = data().getApplicationsWithoutExcluded();
-            if (available == null) { content.addView(text("Loading apps…", textSp, false)); return; }
-            List<AppPojo> apps = new ArrayList<>(available);
-            java.text.Collator collator = java.text.Collator.getInstance();
-            apps.sort((a, b) -> collator.compare(a.getName(), b.getName()));
-            List<Result<?>> results = new ArrayList<>(); for (AppPojo app : apps) if (!app.isDisabled()) results.add(Result.fromPojo(activity, app));
-            addAppGrid(results, true);
+        if (query.length() == 0 && !navigatingTag) {
+            content.addView(text("Type to search apps and more", textSp, false));
         } else {
             List<Result<?>> results = new ArrayList<>();
             for (int i = activity.adapter.getCount() - 1; i >= 0; i--) results.add(activity.adapter.getItem(i));
@@ -629,7 +648,7 @@ public final class DashboardController {
         }); return item;
     }
     private void showAlphabet(char letter) {
-        if (query.length() > 0 || navigatingTag) { query.setText(""); navigatingTag = false; renderSearchResults(); }
+        if (searchMode) return;
         letterBubble.setText(String.valueOf(letter)); letterBubble.setVisibility(View.VISIBLE);
         View target = alphabetTargets.get(letter);
         if (target == null) {
@@ -734,17 +753,6 @@ public final class DashboardController {
                 TextView bubble = letterBubble; root.postDelayed(() -> bubble.setVisibility(View.GONE), 1200); return true;
             }
             return super.performAccessibilityAction(action, arguments);
-        }
-    }
-    private final class PullDownScrollView extends ScrollView {
-        private float startX, startY; private boolean atTop;
-        PullDownScrollView(Context context) { super(context); }
-        @Override public boolean dispatchTouchEvent(MotionEvent event) {
-            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) { startX = event.getX(); startY = event.getY(); atTop = getScrollY() == 0; }
-            if (event.getActionMasked() == MotionEvent.ACTION_MOVE && DashboardPolicy.opensSearch(atTop, event.getX() - startX, event.getY() - startY, dp(100))) {
-                MotionEvent cancel = MotionEvent.obtain(event); cancel.setAction(MotionEvent.ACTION_CANCEL); super.dispatchTouchEvent(cancel); cancel.recycle(); showSearch(); return true;
-            }
-            return super.dispatchTouchEvent(event);
         }
     }
 }
