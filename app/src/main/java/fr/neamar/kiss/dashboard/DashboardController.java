@@ -213,28 +213,31 @@ public final class DashboardController {
                     toggle.setVisibility(overflow ? View.VISIBLE : View.GONE);
                 });
             }
-            boolean media = Notification.CATEGORY_TRANSPORT.equals(n.category) || n.extras.containsKey(Notification.EXTRA_MEDIA_SESSION);
+            boolean media = Notification.CATEGORY_TRANSPORT.equals(n.category) || n.extras.containsKey(Notification.EXTRA_MEDIA_SESSION)
+                || n.extras.containsKey("android.compactActions")
+                || String.valueOf(n.extras.getString("android.template", "")).contains("MediaStyle");
             WrappingActions actions = new WrappingActions(activity, media);
             if (n.actions != null) for (Notification.Action action : n.actions) {
                 if (action.actionIntent == null || action.getRemoteInputs() != null) continue;
                 if (media) {
                     android.graphics.drawable.Drawable actionIcon = null;
+                    Context sourceContext = activity;
+                    try { sourceContext = activity.createPackageContext(sbn.getPackageName(), 0); }
+                    catch (PackageManager.NameNotFoundException ignored) { }
                     try {
-                        if (Build.VERSION.SDK_INT >= 23 && action.getIcon() != null) actionIcon = action.getIcon().loadDrawable(activity);
-                        else if (action.icon != 0) actionIcon = activity.getPackageManager().getResourcesForApplication(sbn.getPackageName()).getDrawable(action.icon);
-                    } catch (PackageManager.NameNotFoundException | android.content.res.Resources.NotFoundException ignored) { }
-                    if (actionIcon != null) {
-                        ImageButton actionButton = new ImageButton(activity);
-                        actionButton.setImageDrawable(actionIcon);
-                        actionButton.setImageTintList(android.content.res.ColorStateList.valueOf(ACCENT));
-                        actionButton.setContentDescription(action.title);
-                        actionButton.setPadding(dp(14), dp(14), dp(14), dp(14));
-                        actionButton.setBackground(interactionBackground());
-                        actionButton.setOnClickListener(v -> send(action.actionIntent));
-                        actions.addView(actionButton, new ViewGroup.LayoutParams(dp(56), dp(56)));
-                    } else {
-                        actions.addView(button(String.valueOf(action.title), () -> send(action.actionIntent)));
-                    }
+                        if (Build.VERSION.SDK_INT >= 23 && action.getIcon() != null) actionIcon = action.getIcon().loadDrawable(sourceContext);
+                        if (actionIcon == null && action.icon != 0) actionIcon = sourceContext.getResources().getDrawable(action.icon);
+                    } catch (RuntimeException ignored) { }
+                    ImageButton actionButton = new ImageButton(activity);
+                    if (actionIcon != null) actionButton.setImageDrawable(actionIcon);
+                    else actionButton.setImageResource(mediaFallbackIcon(action, sourceContext));
+                    actionButton.setImageTintList(android.content.res.ColorStateList.valueOf(ACCENT));
+                    actionButton.setContentDescription(action.title);
+                    actionButton.setPadding(dp(14), dp(14), dp(14), dp(14));
+                    actionButton.setBackground(interactionBackground());
+                    actionButton.setOnClickListener(v -> send(action.actionIntent));
+                    actionButton.setOnLongClickListener(v -> { Toast.makeText(activity, action.title, Toast.LENGTH_SHORT).show(); return true; });
+                    actions.addView(actionButton, new ViewGroup.LayoutParams(dp(56), dp(56)));
                 } else {
                     TextView actionButton = button(String.valueOf(action.title), () -> send(action.actionIntent));
                     actionButton.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
@@ -247,6 +250,25 @@ public final class DashboardController {
         }
         renderTasks(); renderCalendar(); renderDock();
         scroll.post(() -> scroll.scrollTo(0, offset));
+    }
+    private int mediaFallbackIcon(Notification.Action action, Context sourceContext) {
+        String resourceName = "";
+        try {
+            int id = action.icon;
+            if (Build.VERSION.SDK_INT >= 28 && action.getIcon() != null && action.getIcon().getType() == android.graphics.drawable.Icon.TYPE_RESOURCE)
+                id = action.getIcon().getResId();
+            if (id != 0) resourceName = sourceContext.getResources().getResourceEntryName(id);
+        } catch (RuntimeException ignored) { }
+        String name = (resourceName.isEmpty() ? String.valueOf(action.title) : resourceName).toLowerCase(Locale.ROOT);
+        if (name.contains("stop")) return R.drawable.dashboard_media_stop;
+        if (name.contains("pause")) return android.R.drawable.ic_media_pause;
+        if (name.contains("previous") || name.contains("prev")) return android.R.drawable.ic_media_previous;
+        if (name.contains("next")) return android.R.drawable.ic_media_next;
+        if (name.contains("rewind")) return android.R.drawable.ic_media_rew;
+        if (name.contains("forward")) return android.R.drawable.ic_media_ff;
+        if (name.contains("play")) return android.R.drawable.ic_media_play;
+        // Unknown controls retain their real intent/accessible label instead of inventing a transport action.
+        return android.R.drawable.ic_menu_more;
     }
     /** Right-aligned action rows wrap only when their actual measured labels do not fit. */
     private final class WrappingActions extends ViewGroup {
@@ -322,7 +344,8 @@ public final class DashboardController {
         @Override public boolean onInterceptTouchEvent(MotionEvent event) {
             if (!notification.isClearable()) return super.onInterceptTouchEvent(event);
             if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
-                startX = event.getX(); startY = event.getY(); horizontal = false; vertical = false;
+                animate().cancel(); setTranslationX(0); setAlpha(1f);
+                startX = event.getRawX(); startY = event.getRawY(); horizontal = false; vertical = false;
                 getParent().requestDisallowInterceptTouchEvent(true);
             } else if (event.getActionMasked() == MotionEvent.ACTION_MOVE) {
                 classify(event);
@@ -334,7 +357,7 @@ public final class DashboardController {
         }
         private void classify(MotionEvent event) {
             if (horizontal || vertical) return;
-            float dx = Math.abs(event.getX() - startX), dy = Math.abs(event.getY() - startY);
+            float dx = Math.abs(event.getRawX() - startX), dy = Math.abs(event.getRawY() - startY);
             if (dx > slop && dx > dy * 1.5f) horizontal = true;
             else if (dy > slop) { vertical = true; getParent().requestDisallowInterceptTouchEvent(false); }
         }
@@ -343,12 +366,22 @@ public final class DashboardController {
             if (event.getActionMasked() == MotionEvent.ACTION_MOVE) classify(event);
             if (horizontal) {
                 setPressed(false);
+                float drag = event.getRawX() - startX;
+                setTranslationX(drag);
+                setAlpha(Math.max(0.35f, 1f - Math.abs(drag) / Math.max(1, getWidth()) * 0.65f));
                 if (event.getActionMasked() == MotionEvent.ACTION_UP) {
                     getParent().requestDisallowInterceptTouchEvent(false);
-                    if (Math.abs(event.getX() - startX) >= dp(72)) {
-                        expandedNotifications.remove(notification.getKey()); DashboardNotifications.dismiss(notification.getKey());
-                    }
-                } else if (event.getActionMasked() == MotionEvent.ACTION_CANCEL) getParent().requestDisallowInterceptTouchEvent(false);
+                    if (Math.abs(drag) >= Math.max(dp(72), getWidth() * 0.25f)) {
+                        animate().translationX(Math.copySign(getWidth(), drag)).alpha(0f).setDuration(180).withEndAction(() -> {
+                            expandedNotifications.remove(notification.getKey()); DashboardNotifications.dismiss(notification.getKey());
+                            // Restore if the provider rejects dismissal; a normal refresh removes accepted dismissals.
+                            postDelayed(() -> { if (isAttachedToWindow()) animate().translationX(0).alpha(1f).setDuration(160).start(); }, 400);
+                        }).start();
+                    } else animate().translationX(0).alpha(1f).setDuration(160).start();
+                } else if (event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+                    getParent().requestDisallowInterceptTouchEvent(false);
+                    animate().translationX(0).alpha(1f).setDuration(160).start();
+                }
                 return true;
             }
             return super.onTouchEvent(event);

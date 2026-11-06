@@ -52,3 +52,7 @@ Column preferences now apply separately to wide/square versus narrow window layo
 Upcoming events have a narrow rounded color bar at the left using event display color, calendar color fallback, then launcher accent only if neither is provided. Text remains readable without depending on color. Notification actions lay out horizontally, aligned right, wrapping only when actual measured labels overflow. Media notifications are recognized by Android category/media-session metadata and show their provided action icons centered in supplied order with accessible labels and 56dp targets. Missing icons fall back to action text. No extra permission or media-session access is requested.
 
 The A–Z index has no persistent background or shadow. Its full 56dp touch region, sliding/jump behavior, accessibility actions and temporary selected-letter feedback remain.
+
+## Media icon and swipe animation fixes
+
+Media icon lookup now uses the source application context, recognizes MediaStyle/compact-actions metadata, and remains icon-only if an icon is missing. Resource names are preferred for fallback transport symbols; unknown controls use a generic more icon with the original accessible label/intent. Long-press reveals the supplied label. Clearable cards track horizontal finger movement, fade and animate out on dismissal, or snap back on short/canceled drags. Non-clearable cards remain stationary.
