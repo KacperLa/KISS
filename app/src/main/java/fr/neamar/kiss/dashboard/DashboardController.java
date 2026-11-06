@@ -643,7 +643,8 @@ public final class DashboardController {
         }
         if (homeLastHeading != null) {
             homeAppTail = new View(activity); homeAppTail.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            content.addView(homeAppTail, new LinearLayout.LayoutParams(-1, 0));
+            // Start with ample space so a refresh cannot clamp the final heading before measurement.
+            content.addView(homeAppTail, new LinearLayout.LayoutParams(-1, Math.max(0, scroll.getHeight())));
             homeAppTail.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> updateHomeTailPadding());
             root.post(this::updateHomeTailPadding);
         }
