@@ -676,9 +676,8 @@ public final class DashboardController {
         if (target == null) {
             for (char next = letter; next <= 'Z'; next++) if (alphabetTargets.containsKey(next)) { target = alphabetTargets.get(next); break; }
         }
-        ScrollView targetScroll = scroll;
-        if (target != null) { View rowTarget = target; targetScroll.post(() -> { if (!searchMode && scroll == targetScroll && rowTarget.isAttachedToWindow()) targetScroll.scrollTo(0, rowTarget.getTop()); }); }
-        else targetScroll.post(() -> { if (!searchMode && scroll == targetScroll) targetScroll.fullScroll(View.FOCUS_DOWN); });
+        if (target != null && target.isAttachedToWindow()) scroll.scrollTo(0, target.getTop());
+        else scroll.scrollTo(0, content.getHeight());
     }
     private void showControls() {
         LinearLayout controls = column(); controls.setPadding(dp(16), dp(16), dp(16), dp(16)); controls.setBackgroundColor(BG);
