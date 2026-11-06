@@ -152,9 +152,10 @@ public final class DashboardController {
         ((InputMethodManager) activity.getSystemService(Context.INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(root.getWindowToken(), 0);
         root.removeAllViews();
         searchFrame = new FrameLayout(activity); LinearLayout homeBody = row();
-        scroll = new ScrollView(activity); content = column(); scroll.addView(content);
+        scroll = new ScrollView(activity); scroll.setVerticalScrollBarEnabled(false); scroll.setHorizontalScrollBarEnabled(false); content = column(); scroll.addView(content);
         homeBody.addView(scroll, new LinearLayout.LayoutParams(0, -1, 1));
-        LinearLayout rail = new ContinuousRail(activity);
+        ContinuousRail rail = new ContinuousRail(activity);
+        scroll.getViewTreeObserver().addOnScrollChangedListener(rail::invalidate);
         rail.addView(iconButton(R.drawable.dashboard_notifications, "Jump to notifications", () -> jumpToSection(notificationTarget)), new LinearLayout.LayoutParams(dp(56), dp(48)));
         rail.addView(iconButton(R.drawable.dashboard_tasks, "Jump to tasks", () -> jumpToSection(tasksTarget)), new LinearLayout.LayoutParams(dp(56), dp(48)));
         rail.addView(iconButton(R.drawable.dashboard_calendar, "Jump to calendar", () -> jumpToSection(calendarTarget)), new LinearLayout.LayoutParams(dp(56), dp(48)));
@@ -231,7 +232,8 @@ public final class DashboardController {
             if (icon == null && Build.VERSION.SDK_INT >= 23 && n.getSmallIcon() != null) {
                 try { icon = n.getSmallIcon().loadDrawable(activity); } catch (RuntimeException ignored) { }
             }
-            notificationIcon.setImageDrawable(icon != null ? icon : activity.getPackageManager().getDefaultActivityIcon());
+            android.graphics.drawable.Drawable appIconDrawable = icon != null ? icon : activity.getPackageManager().getDefaultActivityIcon();
+            notificationIcon.setImageDrawable(KissApplication.getApplication(activity).getIconsHandler().applyIconMask(activity, appIconDrawable));
             LinearLayout.LayoutParams iconLayout = new LinearLayout.LayoutParams(dp(40), dp(40));
             iconLayout.setMarginEnd(dp(4)); notificationHeader.addView(notificationIcon, iconLayout);
             if (title != null) notificationHeader.addView(text(title, textSp, true), new LinearLayout.LayoutParams(0, -2, 1));
@@ -747,15 +749,21 @@ public final class DashboardController {
     /** Own the entire section/alphabet pointer stream, while leaving Search as a normal button. */
     private final class ContinuousRail extends LinearLayout {
         private int pointer = -1, selected = -1;
+        private boolean scrubbing;
+        private float grabOffset;
+        private final android.graphics.Paint thumbPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
         ContinuousRail(Context context) { super(context); setOrientation(VERTICAL); }
         @Override public boolean dispatchTouchEvent(MotionEvent event) {
             int action = event.getActionMasked();
             if (action == MotionEvent.ACTION_DOWN) {
                 if (getChildCount() < 5 || event.getY() >= getChildAt(4).getTop()) return super.dispatchTouchEvent(event);
+                float thumb = indicatorY();
+                scrubbing = Math.abs(event.getY() - thumb) <= dp(22) && Math.abs(event.getX() - getWidth() / 2f) <= dp(24);
+                grabOffset = scrubbing ? event.getY() - thumb : 0;
                 pointer = event.getPointerId(0); selected = -1; railDragging = true;
                 scroll.fling(0); scroll.computeScroll(); // Settle the zero-velocity frame before direct slider jumps.
                 getParent().requestDisallowInterceptTouchEvent(true);
-                selectAt(event.getY()); return true;
+                if (scrubbing) scrubTo(event.getY() - grabOffset); else selectAt(event.getY()); return true;
             }
             if (pointer == -1) return super.dispatchTouchEvent(event);
             int index = event.findPointerIndex(pointer);
@@ -767,8 +775,62 @@ public final class DashboardController {
                 if (action == MotionEvent.ACTION_UP) performClick();
                 return true;
             }
-            if (action == MotionEvent.ACTION_MOVE) selectAt(event.getY(index));
+            if (action == MotionEvent.ACTION_MOVE) { if (scrubbing) scrubTo(event.getY(index) - grabOffset); else selectAt(event.getY(index)); }
             return true;
+        }
+        private float[][] anchors() {
+            List<Float> feed = new ArrayList<>(), rail = new ArrayList<>();
+            View[] sections = {notificationTarget, tasksTarget, calendarTarget};
+            for (int i = 0; i < sections.length; i++) {
+                if (sections[i] != null && sections[i].isAttachedToWindow()) {
+                    feed.add((float) sections[i].getTop());
+                    rail.add((getChildAt(i).getTop() + getChildAt(i).getBottom()) / 2f);
+                }
+            }
+            if (getChildCount() >= 4) {
+                View letters = getChildAt(3); int inset = alphabetInset(letters.getHeight());
+                for (char letter = 'A'; letter <= 'Z'; letter++) {
+                    View heading = alphabetTargets.get(letter);
+                    if (heading != null && heading.isAttachedToWindow()) {
+                        feed.add((float) heading.getTop());
+                        rail.add(letters.getTop() + inset + (letters.getHeight() - 2f * inset) * (letter - 'A') / 25f);
+                    }
+                }
+            }
+            float[] contentPositions = new float[feed.size()], railPositions = new float[rail.size()];
+            for (int i = 0; i < feed.size(); i++) { contentPositions[i] = feed.get(i); railPositions[i] = rail.get(i); }
+            return new float[][]{contentPositions, railPositions};
+        }
+        private float indicatorY() {
+            float[][] points = anchors();
+            return RailScrollMapping.interpolate(scroll.getScrollY(), points[0], points[1]);
+        }
+        private void scrubTo(float y) {
+            float[][] points = anchors();
+            scroll.scrollTo(0, Math.round(RailScrollMapping.interpolate(y, points[1], points[0])));
+            View letters = getChildAt(3);
+            int next = RailNavigationPolicy.index(indicatorY(), getChildAt(0).getBottom(), getChildAt(1).getBottom(), letters.getTop(), letters.getBottom(), alphabetInset(letters.getHeight()));
+            if (next >= 3) { letterBubble.setText(String.valueOf((char) ('A' + next - 3))); letterBubble.setVisibility(View.VISIBLE); }
+            else letterBubble.setVisibility(View.GONE);
+            invalidate();
+        }
+        @Override protected void dispatchDraw(android.graphics.Canvas canvas) {
+            super.dispatchDraw(canvas);
+            if (searchMode || getChildCount() < 5 || notificationTarget == null || !notificationTarget.isAttachedToWindow()) return;
+            float y = indicatorY(), x = getWidth() / 2f, radius = Math.min(dp(20), getWidth() / 2f - dp(3));
+            thumbPaint.setColor(ACCENT); thumbPaint.setColorFilter(null);
+            canvas.drawCircle(x, y, radius, thumbPaint);
+            View letters = getChildAt(3);
+            if (y >= letters.getTop()) {
+                int index = DashboardPolicy.letterIndex(y - letters.getTop() - alphabetInset(letters.getHeight()), letters.getHeight() - 2 * alphabetInset(letters.getHeight()));
+                thumbPaint.setColor(BG); thumbPaint.setTextSize(dp(22)); thumbPaint.setTypeface(Typeface.DEFAULT_BOLD); thumbPaint.setTextAlign(android.graphics.Paint.Align.CENTER);
+                canvas.drawText(String.valueOf((char) ('A' + index)), x, y - (thumbPaint.ascent() + thumbPaint.descent()) / 2f, thumbPaint);
+            } else {
+                int save = canvas.save(); android.graphics.Path clip = new android.graphics.Path(); clip.addCircle(x, y, radius, android.graphics.Path.Direction.CW); canvas.clipPath(clip);
+                android.graphics.Paint inverse = new android.graphics.Paint(); inverse.setColorFilter(new android.graphics.PorterDuffColorFilter(BG, android.graphics.PorterDuff.Mode.SRC_IN));
+                int layer = canvas.saveLayer(x - radius, y - radius, x + radius, y + radius, inverse);
+                super.dispatchDraw(canvas); canvas.restoreToCount(layer); canvas.restoreToCount(save);
+            }
         }
         private void selectAt(float y) {
             View letters = getChildAt(3);
