@@ -63,6 +63,7 @@ public class SettingsFragment extends PreferenceFragmentCompat implements Shared
         prefs = PreferenceManager.getDefaultSharedPreferences(requireContext());
 
         setPreferencesFromResource(R.xml.preferences, rootKey);
+        if (rootKey == null) addAccessibleLauncherPreferences();
 
         if (prefs.getStringSet("selected-search-provider-names", null) == null) {
             // If null, it means this setting has never been accessed before
@@ -100,6 +101,29 @@ public class SettingsFragment extends PreferenceFragmentCompat implements Shared
         updateNightMode();
 
         permissionManager = new Permission(getActivity());
+    }
+
+    private void addAccessibleLauncherPreferences() {
+        android.content.SharedPreferences dashboard = requireContext().getSharedPreferences("accessible-dashboard", android.content.Context.MODE_PRIVATE);
+        androidx.preference.PreferenceCategory category = new androidx.preference.PreferenceCategory(requireContext());
+        category.setTitle("Accessible launcher"); category.setKey("accessible-launcher-settings"); category.setOrder(-100);
+        getPreferenceScreen().addPreference(category);
+        androidx.preference.SeekBarPreference size = new androidx.preference.SeekBarPreference(requireContext());
+        size.setKey("dashboard-text-size"); size.setTitle("Launcher text size"); size.setPersistent(false);
+        size.setMin(20); size.setMax(60); size.setShowSeekBarValue(true); size.setValue((int) dashboard.getFloat("text-size", 28));
+        size.setOnPreferenceChangeListener((preference, value) -> { dashboard.edit().putFloat("text-size", ((Integer) value).floatValue()).apply(); return true; });
+        category.addPreference(size);
+        addColumnPreference(category, dashboard, "app-columns-wide", "Wide layout app columns");
+        addColumnPreference(category, dashboard, "app-columns-narrow", "Narrow layout app columns");
+    }
+    private void addColumnPreference(androidx.preference.PreferenceCategory category, android.content.SharedPreferences dashboard, String key, String title) {
+        androidx.preference.ListPreference columns = new androidx.preference.ListPreference(requireContext());
+        columns.setKey("dashboard-" + key); columns.setTitle(title); columns.setPersistent(false);
+        columns.setEntries(new String[]{"Auto", "1 column", "2 columns"}); columns.setEntryValues(new String[]{"0", "1", "2"});
+        int selected = dashboard.getInt(key, 0); columns.setValue(String.valueOf(selected >= 0 && selected <= 2 ? selected : 0));
+        columns.setSummaryProvider(androidx.preference.ListPreference.SimpleSummaryProvider.getInstance());
+        columns.setOnPreferenceChangeListener((preference, value) -> { dashboard.edit().putInt(key, Integer.parseInt((String) value)).apply(); return true; });
+        category.addPreference(columns);
     }
 
     private void updateItemsToRun() {

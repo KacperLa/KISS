@@ -50,9 +50,9 @@ public final class DashboardController {
     private View dockView;
     private View alphabetRail;
     private View notificationTarget, tasksTarget, calendarTarget;
+    private View homeAppTail, homeLastHeading;
     private boolean railDragging;
     private FrameLayout searchFrame;
-    private AlertDialog controlsDialog;
     private final Map<Character, View> alphabetTargets = new HashMap<>();
     private int renderedColumns = 1;
     private final Set<String> expandedNotifications = new HashSet<>();
@@ -102,6 +102,7 @@ public final class DashboardController {
         });
         root.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
             if (appColumns() != renderedColumns) root.post(() -> { if (searchMode) renderSearchResults(); else renderHome(); });
+            else if (!searchMode) root.post(this::updateHomeTailPadding);
         });
         activity.adapter.registerDataSetObserver(observer);
         showHome();
@@ -129,6 +130,8 @@ public final class DashboardController {
     }
     public void resume() {
         resumed = true;
+        textSp = preferences.getFloat("text-size", 28);
+        if (letterBubble != null) letterBubble.setTextSize(textSp + 24);
         if (!registered) {
             IntentFilter filter = new IntentFilter(DashboardNotifications.CHANGED);
             filter.addAction(Intent.ACTION_SCREEN_OFF); filter.addAction(Intent.ACTION_USER_PRESENT);
@@ -145,7 +148,6 @@ public final class DashboardController {
     public void showHome() {
         searchMode = false; navigatingTag = false;
         if (query != null) query.clearFocus();
-        if (controlsDialog != null) { controlsDialog.setOnDismissListener(null); controlsDialog.dismiss(); controlsDialog = null; }
         activity.searchEditText.setText("");
         ((InputMethodManager) activity.getSystemService(Context.INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(root.getWindowToken(), 0);
         root.removeAllViews();
@@ -153,11 +155,14 @@ public final class DashboardController {
         scroll = new ScrollView(activity); content = column(); scroll.addView(content);
         homeBody.addView(scroll, new LinearLayout.LayoutParams(0, -1, 1));
         LinearLayout rail = new ContinuousRail(activity);
-        rail.addView(iconButton(android.R.drawable.ic_dialog_info, "Jump to notifications", () -> jumpToSection(notificationTarget)), new LinearLayout.LayoutParams(dp(56), dp(48)));
-        rail.addView(iconButton(android.R.drawable.checkbox_on_background, "Jump to tasks", () -> jumpToSection(tasksTarget)), new LinearLayout.LayoutParams(dp(56), dp(48)));
-        rail.addView(iconButton(android.R.drawable.ic_menu_my_calendar, "Jump to calendar", () -> jumpToSection(calendarTarget)), new LinearLayout.LayoutParams(dp(56), dp(48)));
+        rail.addView(iconButton(R.drawable.dashboard_notifications, "Jump to notifications", () -> jumpToSection(notificationTarget)), new LinearLayout.LayoutParams(dp(56), dp(48)));
+        rail.addView(iconButton(R.drawable.dashboard_tasks, "Jump to tasks", () -> jumpToSection(tasksTarget)), new LinearLayout.LayoutParams(dp(56), dp(48)));
+        rail.addView(iconButton(R.drawable.dashboard_calendar, "Jump to calendar", () -> jumpToSection(calendarTarget)), new LinearLayout.LayoutParams(dp(56), dp(48)));
         alphabetRail = new AlphabetRail(activity); rail.addView(alphabetRail, new LinearLayout.LayoutParams(dp(56), 0, 1));
-        rail.addView(iconButton(android.R.drawable.ic_menu_search, "Search apps and more", this::showSearch), new LinearLayout.LayoutParams(dp(56), dp(56)));
+        ImageButton searchControl = iconButton(android.R.drawable.ic_menu_search, "Search apps and more", this::showSearch);
+        searchControl.setOnLongClickListener(v -> { open(new Intent(activity, SettingsActivity.class)); return true; });
+        androidx.core.view.ViewCompat.addAccessibilityAction(searchControl, "Launcher settings", (view, arguments) -> { open(new Intent(activity, SettingsActivity.class)); return true; });
+        rail.addView(searchControl, new LinearLayout.LayoutParams(dp(56), dp(56)));
         homeBody.addView(rail, new LinearLayout.LayoutParams(dp(56), -1));
         searchFrame.addView(homeBody, new FrameLayout.LayoutParams(-1, -1));
         letterBubble = text("", textSp + 24, true); letterBubble.setTextColor(BG); letterBubble.setBackground(background(ACCENT));
@@ -191,7 +196,7 @@ public final class DashboardController {
         }
         View focused = content.findFocus(); Object focusTag = focused == null ? null : focused.getTag();
         content.removeAllViews(); alphabetTargets.clear();
-        notificationTarget = tasksTarget = calendarTarget = null; renderedColumns = appColumns();
+        notificationTarget = tasksTarget = calendarTarget = null; homeAppTail = homeLastHeading = null; renderedColumns = appColumns();
         if (keyguard.isKeyguardLocked()) {
             if (dockView != null) root.removeView(dockView);
             content.addView(text("Unlock to view notifications", textSp, true)); return;
@@ -510,8 +515,6 @@ public final class DashboardController {
     private void renderDock() {
         if (dockView != null) root.removeView(dockView);
         LinearLayout dockContainer = row(); dockView = dockContainer;
-        ImageButton controls = iconButton(android.R.drawable.ic_menu_manage, "Quick controls", this::showControls);
-        dockContainer.addView(controls, new LinearLayout.LayoutParams(dp(64), dp(64)));
         HorizontalScrollView dockScroll = new HorizontalScrollView(activity); LinearLayout dock = row(); dockScroll.addView(dock);
         dockContainer.addView(dockScroll, new LinearLayout.LayoutParams(0, -2, 1));
         Set<String> used = new HashSet<>(); int limit = DashboardPolicy.favoriteCount(activity.getResources().getConfiguration().screenWidthDp);
@@ -620,16 +623,53 @@ public final class DashboardController {
         List<AppPojo> apps = new ArrayList<>(available);
         java.text.Collator collator = java.text.Collator.getInstance();
         apps.sort((a, b) -> collator.compare(a.getName(), b.getName()));
-        List<Result<?>> results = new ArrayList<>();
-        for (AppPojo app : apps) if (!app.isDisabled()) results.add(Result.fromPojo(activity, app));
-        addAppGrid(results, true);
+        Map<Character, List<Result<?>>> groups = new TreeMap<>();
+        for (AppPojo app : apps) {
+            if (app.isDisabled()) continue;
+            char letter = DashboardPolicy.initialLetter(app.getName());
+            if (letter == 0) letter = '#';
+            groups.computeIfAbsent(letter, key -> new ArrayList<>()).add(Result.fromPojo(activity, app));
+        }
+        for (Map.Entry<Character, List<Result<?>>> group : groups.entrySet()) {
+            char letter = group.getKey();
+            TextView heading = text(String.valueOf(letter), textSp + 4, true);
+            heading.setTag("app-letter:" + letter);
+            if (letter == '#') heading.setContentDescription("Numbers, symbols and other alphabets");
+            androidx.core.view.ViewCompat.setAccessibilityHeading(heading, true);
+            content.addView(heading, new LinearLayout.LayoutParams(-1, -2));
+            if (letter != '#') alphabetTargets.put(letter, heading);
+            homeLastHeading = heading;
+            addAppGrid(group.getValue(), false);
+        }
+        if (homeLastHeading != null) {
+            homeAppTail = new View(activity); homeAppTail.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            content.addView(homeAppTail, new LinearLayout.LayoutParams(-1, 0));
+            homeAppTail.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> updateHomeTailPadding());
+            root.post(this::updateHomeTailPadding);
+        }
     }
+    private void updateHomeTailPadding() {
+        if (searchMode || homeAppTail == null || homeLastHeading == null || !homeAppTail.isAttachedToWindow()) return;
+        int lastGroupHeight = content.getHeight() - homeLastHeading.getTop() - homeAppTail.getHeight();
+        int needed = Math.max(0, scroll.getHeight() - lastGroupHeight);
+        if (homeAppTail.getLayoutParams().height != needed) {
+            homeAppTail.getLayoutParams().height = needed; homeAppTail.requestLayout();
+        }
+    }
+
     private void renderSearchResults() {
         if (!searchMode || content == null || query == null) return;
         content.removeAllViews(); alphabetTargets.clear(); renderedColumns = appColumns();
         letterBubble.setVisibility(View.GONE);
         if (query.length() == 0 && !navigatingTag) {
-            content.addView(text("Type to search apps and more", textSp, false));
+            List<AppPojo> recent = recentApps(6);
+            if (recent.isEmpty()) content.addView(text("Type to search apps and more", textSp, false));
+            else {
+                content.addView(text("Recent apps", textSp, true));
+                List<Result<?>> results = new ArrayList<>();
+                for (AppPojo app : recent) results.add(Result.fromPojo(activity, app));
+                addAppGrid(results, false);
+            }
         } else {
             List<Result<?>> results = new ArrayList<>();
             for (int i = activity.adapter.getCount() - 1; i >= 0; i--) results.add(activity.adapter.getItem(i));
@@ -678,41 +718,6 @@ public final class DashboardController {
         }
         if (target != null && target.isAttachedToWindow()) scroll.scrollTo(0, target.getTop());
         else scroll.scrollTo(0, content.getHeight());
-    }
-    private void showControls() {
-        LinearLayout controls = column(); controls.setPadding(dp(16), dp(16), dp(16), dp(16)); controls.setBackgroundColor(BG);
-        controls.addView(button("Wi-Fi · Open settings", () -> open(new Intent(Build.VERSION.SDK_INT >= 29 ? Settings.Panel.ACTION_WIFI : Settings.ACTION_WIFI_SETTINGS))));
-        controls.addView(button("Bluetooth · Open settings", () -> open(new Intent(Settings.ACTION_BLUETOOTH_SETTINGS))));
-        controls.addView(button("Brightness · Open settings", () -> open(new Intent(Settings.ACTION_DISPLAY_SETTINGS))));
-        controls.addView(text("Text size", textSp, true)); SeekBar size = new SeekBar(activity); size.setMax(40); size.setProgress((int) textSp - 20);
-        size.setContentDescription("Launcher text size, 20 to 60 scaled pixels");
-        size.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            public void onProgressChanged(SeekBar bar, int progress, boolean user) { if (user) { textSp = 20 + progress; preferences.edit().putFloat("text-size", textSp).apply(); } }
-            public void onStartTrackingTouch(SeekBar bar) { }
-            public void onStopTrackingTouch(SeekBar bar) { }
-        }); controls.addView(size);
-        String[] columnNames = {"Auto", "1 column", "2 columns"};
-        String columnPreference = columnPreferenceKey();
-        String layoutName = isWideAppLayout() ? "Wide layout" : "Narrow layout";
-        int columnMode = preferences.getInt(columnPreference, 0);
-        if (columnMode < 0 || columnMode > 2) columnMode = 0;
-        TextView columnButton = button("App columns · " + layoutName + " · " + columnNames[columnMode], () -> {
-            int selected = preferences.getInt(columnPreference, 0);
-            new AlertDialog.Builder(activity).setTitle("App columns · " + layoutName)
-                .setSingleChoiceItems(columnNames, selected >= 0 && selected <= 2 ? selected : 0, (choice, which) -> {
-                    preferences.edit().putInt(columnPreference, which).apply();
-                    choice.dismiss();
-                    if (controlsDialog != null) controlsDialog.dismiss();
-                }).setNegativeButton("Cancel", null).show();
-        });
-        controls.addView(columnButton);
-        controls.addView(button("Search apps", () -> { if (controlsDialog != null) controlsDialog.dismiss(); showSearch(); }));
-        controls.addView(button("KISS settings", () -> open(new Intent(activity, SettingsActivity.class))));
-        controls.addView(button("More system settings", () -> open(new Intent(Settings.ACTION_SETTINGS))));
-        ScrollView container = new ScrollView(activity); container.addView(controls);
-        AlertDialog dialog = new AlertDialog.Builder(activity).setTitle("Quick controls").setView(container).setPositiveButton("Close", null).create();
-        controlsDialog = dialog;
-        dialog.setOnDismissListener(d -> { controlsDialog = null; if (searchMode) showSearch(); else showHome(); }); dialog.show();
     }
     private void open(Intent intent) { try { activity.startActivity(intent); } catch (android.content.ActivityNotFoundException | SecurityException e) { Toast.makeText(activity, "This action is unavailable on this device", Toast.LENGTH_LONG).show(); } }
     /** Called only by explicit card/action clicks while this launcher is resumed. */
@@ -765,7 +770,7 @@ public final class DashboardController {
         }
         private void selectAt(float y) {
             View letters = getChildAt(3);
-            int next = RailNavigationPolicy.index(y, getChildAt(0).getBottom(), getChildAt(1).getBottom(), letters.getTop(), letters.getBottom());
+            int next = RailNavigationPolicy.index(y, getChildAt(0).getBottom(), getChildAt(1).getBottom(), letters.getTop(), letters.getBottom(), alphabetInset(letters.getHeight()));
             if (next == selected) return;
             selected = next;
             if (next >= 3) { showAlphabet((char) ('A' + next - 3)); return; }
@@ -775,6 +780,7 @@ public final class DashboardController {
         }
         @Override public boolean performClick() { return super.performClick(); }
     }
+    private int alphabetInset(int height) { return Math.round(Math.min(dp(28), height / 4f) / 2f + dp(4)); }
     /** A proportional rail never clips A–Z at high Android font scaling. Selected letter is enlarged in content. */
     private final class AlphabetRail extends View {
         private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
@@ -786,14 +792,19 @@ public final class DashboardController {
             paint.setTypeface(Typeface.DEFAULT_BOLD);
         }
         @Override protected void onDraw(android.graphics.Canvas canvas) {
-            super.onDraw(canvas); float cell = getHeight() / 26f;
-            paint.setTextSize(Math.min(dp(20), cell * 0.75f));
-            for (int i = 0; i < 26; i++) canvas.drawText(String.valueOf((char) ('A' + i)), getWidth() / 2f,
-                cell * (i + 0.5f) - (paint.ascent() + paint.descent()) / 2f, paint);
+            super.onDraw(canvas);
+            float labelSize = Math.min(dp(28), getHeight() / 4f);
+            paint.setTextSize(labelSize);
+            float top = labelSize / 2f + dp(4), bottom = getHeight() - top;
+            float baselineOffset = -(paint.ascent() + paint.descent()) / 2f;
+            canvas.drawText("A", getWidth() / 2f, top + baselineOffset, paint);
+            canvas.drawText("Z", getWidth() / 2f, bottom + baselineOffset, paint);
+            for (int i = 1; i <= 5; i++) canvas.drawCircle(getWidth() / 2f,
+                top + (bottom - top) * i / 6f, dp(2), paint);
         }
         @Override public boolean onTouchEvent(MotionEvent event) {
             if (event.getActionMasked() == MotionEvent.ACTION_DOWN || event.getActionMasked() == MotionEvent.ACTION_MOVE) {
-                selected = DashboardPolicy.letterIndex(event.getY(), getHeight()); showAlphabet((char) ('A' + selected)); return true;
+                selected = DashboardPolicy.letterIndex(event.getY() - alphabetInset(getHeight()), getHeight() - 2 * alphabetInset(getHeight())); showAlphabet((char) ('A' + selected)); return true;
             }
             if (event.getActionMasked() == MotionEvent.ACTION_UP || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
                 if (letterBubble != null) letterBubble.setVisibility(View.GONE); performClick(); return true;

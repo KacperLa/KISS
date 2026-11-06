@@ -1,66 +1,23 @@
 # Accessible KISS prototype
 
-This is a GPL-3.0-or-later KISS fork, based on upstream commit 242682663ac581e8ef62c887691833faabfce617. Upstream copyright, LICENSE and search/provider code are retained.
+An accessible presentation over KISS's existing search/provider/history pipeline, maintained on `prototype/accessible-dashboard`. Upstream license and notices are preserved.
 
-The approved visual references are retained separately in the owner's Space and local working copy. They are design references, not screenshots of the running app.
+## Current behavior
 
-## Implemented first pass
-- Full-width notification dashboard with app icons, Android ranking order, no persisted notification content, Open and Dismiss actions.
-- Bottom icon dock: up to five KISS favorite apps on wide screens, four on narrow screens, and two recently launched apps excluding favorites. The dock scrolls horizontally instead of shrinking targets.
-- Local editable tasks and optional read-only device calendar events for the next week.
-- Home is feed-only, with a fixed quick-controls button at the far left of the bottom dock. Pull down from the top of the feed to search.
-- Existing KISS provider/query/history pipeline drives typed search. Empty search shows up to six recent apps followed by all apps in one continuous alphabetical list; A–Z jumps within that list. Search has only a back arrow and wide input. Long-press a result to choose favorites.
-- App rows are transparent over system wallpaper, with temporary press/focus feedback. Two columns are used when the app-list area is at least 600dp wide; otherwise one column. Long app names fade at the trailing edge without ellipses, and accessibility retains the full name.
-- High contrast lavender/black styling, wrapping text, 20–60sp base text slider (Android font scaling still applies).
-- Quick-controls dialog with Wi-Fi, Bluetooth, display and general settings shortcuts.
-- Separate application ID `app.dot.accessiblekiss` (`.debug` for test builds), so this does not replace upstream KISS.
+- Home is one scrollable feed: notifications, local tasks, upcoming calendar events, then alphabetically grouped apps. Empty letter groups are omitted. Numbers, symbols and other alphabets appear under #.
+- A transparent right rail provides one continuous gesture through notification/task/calendar shortcuts and all 26 letters. It draws large A/Z and dots with an enlarged selected-letter popup. Letter jumps align each heading to the same viewport top; measured trailing space lets the final group align too. Section icons are original scalable vectors. Search at the bottom remains a separate tap.
+- Search uses the existing KISS pipeline. An empty query displays up to six unique Recent apps from KISS launch history. Home's full app list and the favorites/recent-app dock are separate and unchanged.
+- App rows preserve full accessibility names and use a trailing visual fade, not ellipsis. Wide/square windows default to two columns; narrow windows to one. Separate per-layout overrides survive folding and display scaling.
+- The removed Quick controls pane and dock gear have no remaining code/listeners. Text size and column overrides live in normal KISS Settings. Long-press the Search magnifier or use its Launcher settings accessibility action to reach them. Existing preference values are retained.
+- Notification cards include app icons, four-line previews with expansion only on actual overflow, tap-to-open and animated horizontal dismissal for clearable notifications. Short/canceled drags snap back; non-dismissible cards stay still. Refreshes defer during gestures to preserve stability.
+- Non-reply notification actions align right and wrap when needed. Media actions use source-app icons and metadata, centered in their supplied order; fallback symbols preserve the original intent/accessibility label. Unknown actions use a generic icon and a long-press label.
+- Upcoming events have a narrow rounded bar using event display color, then calendar color, then the launcher accent. Event information is still conveyed in text.
+- Local tasks stay on device. Calendar access is optional and read-only. Notification content is not persisted and is hidden while locked. No install, default-launcher switch or permission grant is performed by the build.
 
-## Not finished / verification limits
-- No device or emulator validation yet. Fold continuity, keyboard/Back behavior, TalkBack, large font clipping, notification access/revocation, work profiles and system bars require testing.
-- Inline notification quick reply and per-notification action buttons are not included yet. Open takes you to the originating app. Android may redact content, including detected OTPs.
-- Calendar uses an asynchronous read-only query, refreshed on resume. Calendar source permissions are only requested after an explicit tap.
-- Task integration is local only; there is no external task-service sync.
-- Quick controls currently open system settings; direct brightness/flashlight controls are not implemented yet.
-- A–Z navigates Latin initials (including decomposed accented initials). Other names remain in the full list; non-Latin indexing needs iteration.
-- No release signing key is included or configured. CI debug APK uses an ephemeral debug signer; it is for testing, not a stable update channel.
+## Build and signing
 
-## Build and test
-Use JDK 21 and Android SDK 36 with upstream Gradle wrapper:
-```
-./gradlew lint testDebugUnitTest assembleDebug
-```
-See upstream `qa-suite.md` plus the checks above. CI builds on the prototype branch. This work does not install the APK, choose a default launcher, or grant any permissions.
+GitHub Actions runs lint, unit tests, and APK builds. Test APKs use `app.dot.accessiblekiss.debug`. The downloaded artifact is signed outside GitHub with the durable private signer backed up in the user's private Space. No private key or password belongs in this repository or workflow artifacts. APK signature and package/version are verified before delivery.
 
-## Third prototype adjustments
+## Limitations
 
-Quick controls now offers App columns: Auto, 1 column, or 2 columns. Auto follows available list width; explicit choices persist across folding and rotation without shrinking font size. App names retain their full accessibility labels and visual trailing fade. Notification action buttons align to the trailing edge.
-
-The search input uses the entire header width with no back icon. Android Home returns to the dashboard when this app is the selected default launcher. Standard Back first dismisses the keyboard where Android consumes it, then returns from search. No default launcher setting is changed by the build.
-
-Notification body previews default to four rendered lines. Show more/Show less appears only when the rendered text overflows. Expansion is kept in memory by notification key across refreshes, not persisted on disk. Expanding does not launch the source app.
-
-Tap a notification card to open its content intent. Swipe horizontally at least 72dp to dismiss clearable notifications; an accessible Dismiss notification action is also provided. Vertical gestures remain feed scrolling. Expand and app-action controls handle their own taps. Generic Open/Dismiss buttons are removed. Non-reply app-provided actions are shown right-aligned; inline reply requiring RemoteInput remains unsupported.
-
-## Notification launch compatibility fix
-
-User-triggered notification card/action launches now pass Android sender-side activity-launch options on API 34+. API 36 uses ALLOW_IF_VISIBLE; API 34–35 uses the older supported mode, guarded by the resumed, non-destroyed activity lifecycle. Older Android retains the existing PendingIntent path. No background automatic launch, fallback launch that loses the notification target, or permission changes were added. Phone testing is still needed.
-
-Column preferences now apply separately to wide/square versus narrow window layouts, identified from window width/height ratio (at least 0.75 is wide). Auto chooses two on wide layouts and one on narrow layouts. Bounds are independent of keyboard height and display scaling. Old global column overrides are intentionally not migrated because forcing two globally caused the cover-screen regression. This is window geometry, not hardware hinge detection.
-
-## Calendar and notification action polish
-
-Upcoming events have a narrow rounded color bar at the left using event display color, calendar color fallback, then launcher accent only if neither is provided. Text remains readable without depending on color. Notification actions lay out horizontally, aligned right, wrapping only when actual measured labels overflow. Media notifications are recognized by Android category/media-session metadata and show their provided action icons centered in supplied order with accessible labels and 56dp targets. Missing icons fall back to action text. No extra permission or media-session access is requested.
-
-The A–Z index has no persistent background or shadow. Its full 56dp touch region, sliding/jump behavior, accessibility actions and temporary selected-letter feedback remain.
-
-## Media icon and swipe animation fixes
-
-Media icon lookup now uses the source application context, recognizes MediaStyle/compact-actions metadata, and remains icon-only if an icon is missing. Resource names are preferred for fallback transport symbols; unknown controls use a generic more icon with the original accessible label/intent. Long-press reveals the supplied label. Clearable cards track horizontal finger movement, fade and animate out on dismissal, or snap back on short/canceled drags. Non-clearable cards remain stationary.
-
-## Unified Home feed
-
-Home contains notifications, tasks, upcoming calendar, then all apps alphabetically in one continuous scroll. Its fixed right rail has section jumps, A–Z sliding navigation and a bottom magnifier that opens typed KISS search. Search no longer shows recent apps or an alphabet rail. The favorites/recent-app dock is unchanged. Home no longer intercepts pull-down to open search, leaving normal system shade gestures alone. Adaptive app columns and full accessible app labels remain.
-
-## Continuous rail gesture
-
-A single pointer stream now crosses notifications, tasks, calendar and A–Z in either direction without lifting. Existing labeled section buttons and alphabet accessibility actions remain for assistive navigation. The bottom Search control remains a separate tap; sliding into it does not launch search. Ordinary home refresh waits until rail release so jump targets remain stable.
+Physical-device rendering and accessibility testing remain necessary. Inline notification replies are not implemented. Android or source apps can redact notification content or omit launch/actions. Calendar currently shows up to five events over the next seven days. The layout uses window proportions rather than hardware hinge detection. The alphabet index groups non-Latin initials under #. Existing KISS settings/features remain available; no shared permission was removed merely because the dashboard's Quick controls pane was removed.
