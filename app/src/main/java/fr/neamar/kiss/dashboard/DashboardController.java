@@ -169,7 +169,14 @@ public final class DashboardController {
     private void jumpToSection(View target) {
         if (searchMode || target == null || !target.isAttachedToWindow()) return;
         letterBubble.setVisibility(View.GONE);
-        scroll.post(() -> scroll.smoothScrollTo(0, target.getTop()));
+        ScrollView targetScroll = scroll;
+        targetScroll.post(() -> {
+            if (searchMode || scroll != targetScroll || !target.isAttachedToWindow()) return;
+            targetScroll.smoothScrollTo(0, target.getTop());
+            android.view.accessibility.AccessibilityManager manager = (android.view.accessibility.AccessibilityManager) activity.getSystemService(Context.ACCESSIBILITY_SERVICE);
+            if (manager.isTouchExplorationEnabled()) target.performAccessibilityAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS, null);
+            else if (!target.isInTouchMode()) { target.setFocusable(true); target.requestFocus(); }
+        });
     }
     private void renderHome() {
         if (searchMode || content == null) return;
@@ -668,8 +675,9 @@ public final class DashboardController {
         if (target == null) {
             for (char next = letter; next <= 'Z'; next++) if (alphabetTargets.containsKey(next)) { target = alphabetTargets.get(next); break; }
         }
-        if (target != null) { View rowTarget = target; scroll.post(() -> scroll.scrollTo(0, rowTarget.getTop())); }
-        else scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN));
+        ScrollView targetScroll = scroll;
+        if (target != null) { View rowTarget = target; targetScroll.post(() -> { if (!searchMode && scroll == targetScroll && rowTarget.isAttachedToWindow()) targetScroll.scrollTo(0, rowTarget.getTop()); }); }
+        else targetScroll.post(() -> { if (!searchMode && scroll == targetScroll) targetScroll.fullScroll(View.FOCUS_DOWN); });
     }
     private void showControls() {
         LinearLayout controls = column(); controls.setPadding(dp(16), dp(16), dp(16), dp(16)); controls.setBackgroundColor(BG);
