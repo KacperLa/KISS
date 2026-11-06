@@ -9,10 +9,10 @@ import android.graphics.PorterDuff;
 import android.graphics.PorterDuffXfermode;
 import android.graphics.Shader;
 import android.view.View;
-import android.widget.TextView;
+import androidx.appcompat.widget.AppCompatTextView;
 
 /** Single-line visual label; the underlying text and accessible name are never shortened. */
-public final class FadingLabel extends TextView {
+public final class FadingLabel extends AppCompatTextView {
     private final Paint mask = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     public FadingLabel(Context context) {
