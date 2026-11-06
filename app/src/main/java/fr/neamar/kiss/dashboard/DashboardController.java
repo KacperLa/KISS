@@ -175,13 +175,20 @@ public final class DashboardController {
         if (searchMode || content == null) return;
         KeyguardManager keyguard = (KeyguardManager) activity.getSystemService(Context.KEYGUARD_SERVICE);
         if (notificationTouchOwner != null && !keyguard.isKeyguardLocked()) return;
-        int offset = scroll.getScrollY(); content.removeAllViews(); alphabetTargets.clear();
+        int offset = scroll.getScrollY();
+        Object anchorTag = null; int anchorDelta = 0;
+        for (int i = 0; i < content.getChildCount(); i++) {
+            View child = content.getChildAt(i);
+            if (child.getBottom() > offset && child.getTag() != null) { anchorTag = child.getTag(); anchorDelta = offset - child.getTop(); break; }
+        }
+        View focused = content.findFocus(); Object focusTag = focused == null ? null : focused.getTag();
+        content.removeAllViews(); alphabetTargets.clear();
         notificationTarget = tasksTarget = calendarTarget = null; renderedColumns = appColumns();
         if (keyguard.isKeyguardLocked()) {
             if (dockView != null) root.removeView(dockView);
             content.addView(text("Unlock to view notifications", textSp, true)); return;
         }
-        notificationTarget = text("Notifications", textSp, true); content.addView(notificationTarget);
+        notificationTarget = text("Notifications", textSp, true); notificationTarget.setTag("section-notifications"); content.addView(notificationTarget);
         StatusBarNotification[] notifications = DashboardNotifications.active();
         Map<String, Integer> ranks = DashboardNotifications.ranks(notifications);
         Arrays.sort(notifications, Comparator.comparingInt(n -> ranks.getOrDefault(n.getKey(), Integer.MAX_VALUE)));
@@ -193,7 +200,7 @@ public final class DashboardController {
         for (StatusBarNotification sbn : notifications) {
             Notification n = sbn.getNotification();
             if ((n.flags & Notification.FLAG_GROUP_SUMMARY) != 0) continue;
-            LinearLayout card = new NotificationCard(sbn);
+            LinearLayout card = new NotificationCard(sbn); card.setTag("notification:" + sbn.getKey());
             CharSequence title = n.extras.getCharSequence(Notification.EXTRA_TITLE);
             CharSequence body = n.extras.getCharSequence(Notification.EXTRA_BIG_TEXT);
             if (body == null) body = n.extras.getCharSequence(Notification.EXTRA_TEXT);
@@ -271,10 +278,17 @@ public final class DashboardController {
             attachNotificationGestures(card, sbn);
             addCard(card);
         }
-        int sectionIndex = content.getChildCount(); renderTasks(); tasksTarget = content.getChildAt(sectionIndex);
-        sectionIndex = content.getChildCount(); renderCalendar(); calendarTarget = content.getChildAt(sectionIndex);
+        int sectionIndex = content.getChildCount(); renderTasks(); tasksTarget = content.getChildAt(sectionIndex); tasksTarget.setTag("section-tasks");
+        sectionIndex = content.getChildCount(); renderCalendar(); calendarTarget = content.getChildAt(sectionIndex); calendarTarget.setTag("section-calendar");
         renderAllApps(); renderDock();
-        scroll.post(() -> scroll.scrollTo(0, offset));
+        Object savedAnchor = anchorTag; int savedDelta = anchorDelta;
+        ScrollView targetScroll = scroll; LinearLayout targetContent = content;
+        targetScroll.post(() -> {
+            if (scroll != targetScroll || content != targetContent || searchMode) return;
+            View anchor = savedAnchor == null ? null : targetContent.findViewWithTag(savedAnchor);
+            if (focusTag != null) { View replacement = targetContent.findViewWithTag(focusTag); if (replacement != null) replacement.requestFocus(); }
+            targetScroll.scrollTo(0, anchor == null ? offset : anchor.getTop() + savedDelta);
+        });
     }
     private int mediaFallbackIcon(Notification.Action action, Context sourceContext) {
         String resourceName = "";
@@ -617,7 +631,7 @@ public final class DashboardController {
     private void addAppGrid(List<Result<?>> results, boolean indexLetters) {
         LinearLayout gridRow = null; int column = 0;
         for (Result<?> result : results) {
-            if (column == 0) { gridRow = row(); content.addView(gridRow, new LinearLayout.LayoutParams(-1, -2)); }
+            if (column == 0) { gridRow = row(); gridRow.setTag("app-row:" + result.getPojo().id); content.addView(gridRow, new LinearLayout.LayoutParams(-1, -2)); }
             View item = appResultView(result);
             gridRow.addView(item, new LinearLayout.LayoutParams(0, -2, 1));
             if (indexLetters) {
@@ -629,7 +643,7 @@ public final class DashboardController {
         if (gridRow != null && column != 0) gridRow.addView(new View(activity), new LinearLayout.LayoutParams(0, 1, 1));
     }
     private View appResultView(Result<?> result) {
-        LinearLayout item = row(); ImageView icon = new ImageView(activity); icon.setImageDrawable(result.getDrawable(activity));
+        LinearLayout item = row(); item.setTag("app-item:" + result.getPojo().id); ImageView icon = new ImageView(activity); icon.setImageDrawable(result.getDrawable(activity));
         icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         item.setPadding(dp(4), dp(4), dp(4), dp(4)); item.addView(icon, new LinearLayout.LayoutParams(dp(40), dp(40)));
         FadingLabel label = new FadingLabel(activity); label.setText(result.getPojo().getName()); label.setTextSize(textSp); label.setTextColor(Color.WHITE);
