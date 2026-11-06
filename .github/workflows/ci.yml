@@ -24,7 +24,8 @@ jobs:
           distribution: 'temurin'
           java-version: 21
       - name: Lint code
-        run: bash ./gradlew lint --stacktrace
+        run: |
+          bash ./gradlew lint --stacktrace || { cat app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt; exit 1; }
       - name: Unit tests
         run: bash ./gradlew testDebugUnitTest --stacktrace
   apk:
