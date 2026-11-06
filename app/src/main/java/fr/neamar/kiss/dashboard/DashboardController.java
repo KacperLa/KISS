@@ -251,16 +251,8 @@ public final class DashboardController {
         header.addView(query, new LinearLayout.LayoutParams(0, -2, 1)); root.addView(header);
         LinearLayout body = row(); scroll = new ScrollView(activity); content = column(); scroll.addView(content);
         body.addView(scroll, new LinearLayout.LayoutParams(0, -1, 1));
-        TextView index = text("A\nB\nC\nD\nE\nF\nG\nH\nI\nJ\nK\nL\nM\nN\nO\nP\nQ\nR\nS\nT\nU\nV\nW\nX\nY\nZ", 16, true);
-        index.setGravity(Gravity.CENTER); index.setBackground(background(CARD)); index.setContentDescription("Slide to select a letter. Use All apps for accessible alphabetical browsing.");
+        AlphabetRail index = new AlphabetRail(activity);
         body.addView(index, new LinearLayout.LayoutParams(dp(56), -1));
-        index.setOnTouchListener((v, event) -> {
-            if (event.getAction() == MotionEvent.ACTION_DOWN || event.getAction() == MotionEvent.ACTION_MOVE) {
-                showAlphabet((char) ('A' + DashboardPolicy.letterIndex(event.getY(), v.getHeight()))); return true;
-            }
-            if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) { if (letterBubble != null) letterBubble.setVisibility(View.GONE); v.performClick(); return true; }
-            return false;
-        });
         root.addView(body, new LinearLayout.LayoutParams(-1, 0, 1));
         root.addView(button("All apps", () -> showAlphabet((char) 0)));
         query.addTextChangedListener(new TextWatcher() {
@@ -319,6 +311,45 @@ public final class DashboardController {
     }
     private void open(Intent intent) { try { activity.startActivity(intent); } catch (android.content.ActivityNotFoundException | SecurityException e) { Toast.makeText(activity, "This action is unavailable on this device", Toast.LENGTH_LONG).show(); } }
     private void send(PendingIntent intent) { try { intent.send(); } catch (PendingIntent.CanceledException e) { Toast.makeText(activity, "This notification has expired", Toast.LENGTH_SHORT).show(); } }
+    /** A proportional rail never clips A–Z at high Android font scaling. Selected letter is enlarged in content. */
+    private final class AlphabetRail extends View {
+        private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private int selected;
+        AlphabetRail(Context context) {
+            super(context); setBackground(background(CARD)); setFocusable(true); setClickable(true);
+            setContentDescription("Alphabet index. Swipe up or down to change letter; All apps provides full list browsing.");
+            paint.setColor(ACCENT); paint.setTextAlign(android.graphics.Paint.Align.CENTER);
+            paint.setTypeface(Typeface.DEFAULT_BOLD);
+        }
+        @Override protected void onDraw(android.graphics.Canvas canvas) {
+            super.onDraw(canvas); float cell = getHeight() / 26f;
+            paint.setTextSize(Math.min(dp(20), cell * 0.75f));
+            for (int i = 0; i < 26; i++) canvas.drawText(String.valueOf((char) ('A' + i)), getWidth() / 2f,
+                cell * (i + 0.5f) - (paint.ascent() + paint.descent()) / 2f, paint);
+        }
+        @Override public boolean onTouchEvent(MotionEvent event) {
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN || event.getActionMasked() == MotionEvent.ACTION_MOVE) {
+                selected = DashboardPolicy.letterIndex(event.getY(), getHeight()); showAlphabet((char) ('A' + selected)); return true;
+            }
+            if (event.getActionMasked() == MotionEvent.ACTION_UP || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+                if (letterBubble != null) letterBubble.setVisibility(View.GONE); performClick(); return true;
+            }
+            return super.onTouchEvent(event);
+        }
+        @Override public boolean performClick() { super.performClick(); return true; }
+        @Override public void onInitializeAccessibilityNodeInfo(android.view.accessibility.AccessibilityNodeInfo info) {
+            super.onInitializeAccessibilityNodeInfo(info); info.setScrollable(true);
+            info.addAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD);
+            info.addAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD);
+        }
+        @Override public boolean performAccessibilityAction(int action, android.os.Bundle arguments) {
+            if (action == android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD || action == android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD) {
+                selected = Math.max(0, Math.min(25, selected + (action == android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD ? 1 : -1)));
+                showAlphabet((char) ('A' + selected)); announceForAccessibility(String.valueOf((char) ('A' + selected))); return true;
+            }
+            return super.performAccessibilityAction(action, arguments);
+        }
+    }
     private final class PullDownScrollView extends ScrollView {
         private float startX, startY; private boolean atTop;
         PullDownScrollView(Context context) { super(context); }
