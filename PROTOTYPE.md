@@ -40,3 +40,9 @@ The search input uses the entire header width with no back icon. Android Home re
 Notification body previews default to four rendered lines. Show more/Show less appears only when the rendered text overflows. Expansion is kept in memory by notification key across refreshes, not persisted on disk. Expanding does not launch the source app.
 
 Tap a notification card to open its content intent. Swipe horizontally at least 72dp to dismiss clearable notifications; an accessible Dismiss notification action is also provided. Vertical gestures remain feed scrolling. Expand and app-action controls handle their own taps. Generic Open/Dismiss buttons are removed. Non-reply app-provided actions are shown right-aligned; inline reply requiring RemoteInput remains unsupported.
+
+## Notification launch compatibility fix
+
+User-triggered notification card/action launches now pass Android sender-side activity-launch options on API 34+. API 36 uses ALLOW_IF_VISIBLE; API 34–35 uses the older supported mode, guarded by the resumed, non-destroyed activity lifecycle. Older Android retains the existing PendingIntent path. No background automatic launch, fallback launch that loses the notification target, or permission changes were added. Phone testing is still needed.
+
+Column preferences now apply separately to wide/square versus narrow window layouts, identified from window width/height ratio (at least 0.75 is wide). Auto chooses two on wide layouts and one on narrow layouts. Bounds are independent of keyboard height and display scaling. Old global column overrides are intentionally not migrated because forcing two globally caused the cover-screen regression. This is window geometry, not hardware hinge detection.

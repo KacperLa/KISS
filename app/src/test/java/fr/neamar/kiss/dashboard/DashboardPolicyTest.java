@@ -28,6 +28,18 @@ class DashboardPolicyTest {
         assertEquals(2, DashboardPolicy.appColumns(900, 0));
         assertEquals(1, DashboardPolicy.appColumns(400, 99));
     }
+    @Test void windowShapeAdaptsIndependentlyOfDisplayScaling() {
+        assertTrue(DashboardPolicy.isWideAppLayout(2076, 2152));
+        assertTrue(DashboardPolicy.isWideAppLayout(1038, 1076));
+        assertFalse(DashboardPolicy.isWideAppLayout(1080, 2424));
+        assertFalse(DashboardPolicy.isWideAppLayout(540, 1212));
+        assertTrue(DashboardPolicy.isWideAppLayout(2424, 1080));
+        assertFalse(DashboardPolicy.isWideAppLayout(0, 0));
+        assertEquals(2, DashboardPolicy.columnsForLayout(true, 0));
+        assertEquals(1, DashboardPolicy.columnsForLayout(false, 0));
+        assertEquals(1, DashboardPolicy.columnsForLayout(true, 1));
+        assertEquals(2, DashboardPolicy.columnsForLayout(false, 2));
+    }
     @Test void indexNormalizesLatinInitialsWithoutHidingOtherNames() {
         assertEquals('M', DashboardPolicy.initialLetter("Messages"));
         assertEquals('E', DashboardPolicy.initialLetter("École"));

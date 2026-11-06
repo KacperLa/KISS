@@ -14,6 +14,12 @@ public final class DashboardPolicy {
     public static int appColumns(int availableWidthDp, int override) {
         return override == 1 || override == 2 ? override : appColumns(availableWidthDp);
     }
+    public static boolean isWideAppLayout(int widthPx, int heightPx) {
+        return widthPx > 0 && heightPx > 0 && (double) widthPx / heightPx >= 0.75;
+    }
+    public static int columnsForLayout(boolean wide, int override) {
+        return override == 1 || override == 2 ? override : (wide ? 2 : 1);
+    }
     public static char initialLetter(String name) {
         if (name == null || name.isEmpty()) return 0;
         String normalized = java.text.Normalizer.normalize(name, java.text.Normalizer.Form.NFD);

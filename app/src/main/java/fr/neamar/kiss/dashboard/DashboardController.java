@@ -2,6 +2,7 @@ package fr.neamar.kiss.dashboard;
 
 import android.Manifest;
 import android.app.AlertDialog;
+import android.app.ActivityOptions;
 import android.app.KeyguardManager;
 import android.app.Notification;
 import android.app.PendingIntent;
@@ -56,6 +57,7 @@ public final class DashboardController {
     private boolean navigatingTag;
     private boolean searchMode;
     private boolean registered;
+    private boolean resumed;
     private float textSp;
     private final java.util.concurrent.ExecutorService calendarExecutor = java.util.concurrent.Executors.newSingleThreadExecutor();
     private List<String> calendarLines = Collections.singletonList("Loading calendar…");
@@ -123,6 +125,7 @@ public final class DashboardController {
         content.addView(card, lp);
     }
     public void resume() {
+        resumed = true;
         if (!registered) {
             IntentFilter filter = new IntentFilter(DashboardNotifications.CHANGED);
             filter.addAction(Intent.ACTION_SCREEN_OFF); filter.addAction(Intent.ACTION_USER_PRESENT);
@@ -133,7 +136,7 @@ public final class DashboardController {
         loadCalendar();
         if (!searchMode) renderHome();
     }
-    public void pause() { root.removeCallbacks(refreshHome); if (registered) { activity.unregisterReceiver(receiver); registered = false; } }
+    public void pause() { resumed = false; root.removeCallbacks(refreshHome); if (registered) { activity.unregisterReceiver(receiver); registered = false; } }
     public void destroy() { destroyed = true; pause(); calendarExecutor.shutdownNow(); activity.adapter.unregisterDataSetObserver(observer); }
     public boolean back() { if (searchMode) { showHome(); return true; } return activity.isKissDefaultLauncher(); }
     public void showHome() {
@@ -413,10 +416,23 @@ public final class DashboardController {
                 ((InputMethodManager) activity.getSystemService(Context.INPUT_METHOD_SERVICE)).showSoftInput(focusedQuery, InputMethodManager.SHOW_IMPLICIT);
         });
     }
+    private boolean isWideAppLayout() {
+        int width, height;
+        if (Build.VERSION.SDK_INT >= 30) {
+            android.graphics.Rect bounds = activity.getWindowManager().getCurrentWindowMetrics().getBounds();
+            width = bounds.width(); height = bounds.height();
+        } else {
+            android.graphics.Point size = new android.graphics.Point();
+            activity.getWindowManager().getDefaultDisplay().getSize(size);
+            width = size.x; height = size.y;
+        }
+        // Window bounds do not shrink for the IME and their ratio is independent of display scaling.
+        return DashboardPolicy.isWideAppLayout(width, height);
+    }
+    private String columnPreferenceKey() { return isWideAppLayout() ? "app-columns-wide" : "app-columns-narrow"; }
     private int appColumns() {
-        int width = root.getWidth() > 0 ? root.getWidth() - root.getPaddingLeft() - root.getPaddingRight() - dp(56)
-            : dp(activity.getResources().getConfiguration().screenWidthDp - 80);
-        return DashboardPolicy.appColumns(Math.round(width / activity.getResources().getDisplayMetrics().density), preferences.getInt("app-columns", 0));
+        boolean wide = isWideAppLayout();
+        return DashboardPolicy.columnsForLayout(wide, preferences.getInt(columnPreferenceKey(), 0));
     }
     private void renderSearchResults() {
         if (!searchMode || content == null || query == null) return;
@@ -501,13 +517,15 @@ public final class DashboardController {
             public void onStopTrackingTouch(SeekBar bar) { }
         }); controls.addView(size);
         String[] columnNames = {"Auto", "1 column", "2 columns"};
-        int columnMode = preferences.getInt("app-columns", 0);
+        String columnPreference = columnPreferenceKey();
+        String layoutName = isWideAppLayout() ? "Wide layout" : "Narrow layout";
+        int columnMode = preferences.getInt(columnPreference, 0);
         if (columnMode < 0 || columnMode > 2) columnMode = 0;
-        TextView columnButton = button("App columns · " + columnNames[columnMode], () -> {
-            int selected = preferences.getInt("app-columns", 0);
-            new AlertDialog.Builder(activity).setTitle("App columns")
+        TextView columnButton = button("App columns · " + layoutName + " · " + columnNames[columnMode], () -> {
+            int selected = preferences.getInt(columnPreference, 0);
+            new AlertDialog.Builder(activity).setTitle("App columns · " + layoutName)
                 .setSingleChoiceItems(columnNames, selected >= 0 && selected <= 2 ? selected : 0, (choice, which) -> {
-                    preferences.edit().putInt("app-columns", which).apply();
+                    preferences.edit().putInt(columnPreference, which).apply();
                     choice.dismiss();
                     if (controlsDialog != null) controlsDialog.dismiss();
                 }).setNegativeButton("Cancel", null).show();
@@ -522,7 +540,28 @@ public final class DashboardController {
         dialog.setOnDismissListener(d -> { controlsDialog = null; if (searchMode) showSearch(); else showHome(); }); dialog.show();
     }
     private void open(Intent intent) { try { activity.startActivity(intent); } catch (android.content.ActivityNotFoundException | SecurityException e) { Toast.makeText(activity, "This action is unavailable on this device", Toast.LENGTH_LONG).show(); } }
-    private void send(PendingIntent intent) { try { intent.send(); } catch (PendingIntent.CanceledException e) { Toast.makeText(activity, "This notification has expired", Toast.LENGTH_SHORT).show(); } }
+    /** Called only by explicit card/action clicks while this launcher is resumed. */
+    private void send(PendingIntent intent) {
+        if (!NotificationLaunchPolicy.canSend(resumed, destroyed, activity.isFinishing())) return;
+        try {
+            if (Build.VERSION.SDK_INT >= 34) {
+                ActivityOptions options = ActivityOptions.makeBasic();
+                if (Build.VERSION.SDK_INT >= 36) {
+                    options.setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_IF_VISIBLE);
+                } else {
+                    // API 34–35 lacks ALLOW_IF_VISIBLE. The lifecycle guard above limits this to foreground clicks.
+                    options.setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
+                }
+                intent.send(activity, 0, null, null, null, null, options.toBundle());
+            } else {
+                intent.send();
+            }
+        } catch (PendingIntent.CanceledException e) {
+            Toast.makeText(activity, "This notification has expired", Toast.LENGTH_SHORT).show();
+        } catch (SecurityException e) {
+            Toast.makeText(activity, "Android could not open this notification", Toast.LENGTH_SHORT).show();
+        }
+    }
     /** A proportional rail never clips A–Z at high Android font scaling. Selected letter is enlarged in content. */
     private final class AlphabetRail extends View {
         private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
