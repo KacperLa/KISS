@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
-    <!-- Include everything by default -->
+    <exclude domain="sharedpref" path="accessible-dashboard.xml" />
 </full-backup-content>

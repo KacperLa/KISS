@@ -13,7 +13,7 @@ android {
     }
 
     defaultConfig {
-        applicationId 'fr.neamar.kiss'
+        applicationId 'app.dot.accessiblekiss'
         minSdk {
             version = release(21)
         }

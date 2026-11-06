@@ -166,6 +166,7 @@ public class MainActivity extends AppCompatActivity implements QueryInterface, K
     private ForwarderManager forwarderManager;
     private Permission permissionManager;
     private OnBackPressedCallback onBackPressedCallback;
+    private fr.neamar.kiss.dashboard.DashboardController dashboard;
 
     /**
      * Called when the activity is first created.
@@ -367,6 +368,7 @@ public class MainActivity extends AppCompatActivity implements QueryInterface, K
          * Defer everything else to the forwarders
          */
         forwarderManager.onCreate();
+        dashboard = new fr.neamar.kiss.dashboard.DashboardController(this);
     }
 
     @Override
@@ -443,12 +445,14 @@ public class MainActivity extends AppCompatActivity implements QueryInterface, K
             // making sure the shared text is not an empty string
             if (sharedText != null && !TextUtils.isEmpty(sharedText.trim())) {
                 searchEditText.setText(sharedText);
+                if (dashboard != null) dashboard.sharedSearch(sharedText);
             } else {
                 Toast.makeText(this, R.string.shared_text_empty, Toast.LENGTH_SHORT).show();
             }
         }
 
         super.onResume();
+        if (dashboard != null) dashboard.resume();
     }
 
 
@@ -456,6 +460,7 @@ public class MainActivity extends AppCompatActivity implements QueryInterface, K
     protected void onPause() {
         super.onPause();
         forwarderManager.onPause();
+        if (dashboard != null) dashboard.pause();
     }
 
     @Override
@@ -470,6 +475,7 @@ public class MainActivity extends AppCompatActivity implements QueryInterface, K
         onBackPressedCallback.remove();
         this.unregisterReceiver(this.mReceiver);
         forwarderManager.onDestroy();
+        if (dashboard != null) dashboard.destroy();
     }
 
     @Override
@@ -478,6 +484,7 @@ public class MainActivity extends AppCompatActivity implements QueryInterface, K
 
         //Set the intent so KISS can tell when it was launched as an assistant
         setIntent(intent);
+        if (dashboard != null && Intent.ACTION_MAIN.equals(intent.getAction())) dashboard.showHome();
 
         // This is called when the user press Home again while already browsing MainActivity
         // onResume() will be called right after, hiding the kissbar if any.
@@ -504,6 +511,7 @@ public class MainActivity extends AppCompatActivity implements QueryInterface, K
     }
 
     private void handleOnBackPressed() {
+        if (dashboard != null && dashboard.back()) return;
         if (mPopup != null) {
             mPopup.dismiss();
         } else if (isViewingAllApps()) {
@@ -522,6 +530,7 @@ public class MainActivity extends AppCompatActivity implements QueryInterface, K
 
     @Override
     public boolean onKeyDown(int keycode, @NonNull KeyEvent e) {
+        if (dashboard != null) return super.onKeyDown(keycode, e);
         if (keycode == KeyEvent.KEYCODE_MENU) {
             // For devices with a physical menu button, we still want to display *our* contextual menu
             menuButton.showContextMenu();
@@ -595,6 +604,7 @@ public class MainActivity extends AppCompatActivity implements QueryInterface, K
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         permissionManager.onRequestPermissionsResult(requestCode, permissions, grantResults);
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (dashboard != null) dashboard.permissionChanged();
     }
 
     @Override

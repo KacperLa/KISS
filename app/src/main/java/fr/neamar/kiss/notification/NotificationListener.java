@@ -34,6 +34,7 @@ public class NotificationListener extends NotificationListenerService {
     @Override
     public void onListenerConnected() {
         super.onListenerConnected();
+        fr.neamar.kiss.dashboard.DashboardNotifications.connect(this);
         Log.i(TAG, "Notification listener connected");
 
         refreshAllNotifications();
@@ -79,6 +80,7 @@ public class NotificationListener extends NotificationListenerService {
 
     @Override
     public void onListenerDisconnected() {
+        fr.neamar.kiss.dashboard.DashboardNotifications.disconnect(this);
         Log.i(TAG, "Notification listener disconnected");
 
         // Clean up everything we have in memory to ensure we don't keep displaying trailing dots.
@@ -100,12 +102,14 @@ public class NotificationListener extends NotificationListenerService {
     @Override
     public void onNotificationRankingUpdate(RankingMap rankingMap) {
         super.onNotificationRankingUpdate(rankingMap);
+        fr.neamar.kiss.dashboard.DashboardNotifications.changed(this);
 
         refreshAllNotifications();
     }
 
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
+        fr.neamar.kiss.dashboard.DashboardNotifications.changed(this);
         if (isNotificationTrivial(sbn)) {
             return;
         }
@@ -137,6 +141,7 @@ public class NotificationListener extends NotificationListenerService {
 
     @Override
     public void onNotificationRemoved(StatusBarNotification sbn) {
+        fr.neamar.kiss.dashboard.DashboardNotifications.changed(this);
         if (sbn == null) {
             return;
         }
