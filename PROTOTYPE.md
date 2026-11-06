@@ -17,7 +17,7 @@ The approved visual references are retained separately in the owner's Space and 
 ## Not finished / verification limits
 - No device or emulator validation yet. Fold continuity, keyboard/Back behavior, TalkBack, large font clipping, notification access/revocation, work profiles and system bars require testing.
 - Inline notification quick reply and per-notification action buttons are not included yet. Open takes you to the originating app. Android may redact content, including detected OTPs.
-- Calendar reads currently happen on the UI thread and need an asynchronous loader before production use. Calendar source permissions are only requested after an explicit tap.
+- Calendar uses an asynchronous read-only query, refreshed on resume. Calendar source permissions are only requested after an explicit tap.
 - Task integration is local only; there is no external task-service sync.
 - Quick controls currently open system settings; direct brightness/flashlight controls are not implemented yet.
 - The initial A–Z view filters from the selected letter onward; final polished sliding index and non-Latin indexing need iteration.

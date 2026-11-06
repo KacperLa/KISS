@@ -50,13 +50,17 @@ public final class DashboardController {
     private boolean alphabetMode;
     private boolean registered;
     private float textSp;
+    private final java.util.concurrent.ExecutorService calendarExecutor = java.util.concurrent.Executors.newSingleThreadExecutor();
+    private List<String> calendarLines = Collections.singletonList("Loading calendar…");
+    private boolean destroyed;
+    private final Runnable refreshHome = () -> { if (!searchMode && !destroyed) renderHome(); };
     private static final int BG = Color.rgb(8, 7, 12);
     private static final int CARD = Color.rgb(29, 25, 37);
     private static final int ACCENT = Color.rgb(216, 190, 255);
     private final DataSetObserver observer = new DataSetObserver() {
         @Override public void onChanged() {
             if (searchMode && !alphabetMode) renderSearchResults();
-            else if (!searchMode) renderHome();
+            else if (!searchMode) { root.removeCallbacks(refreshHome); root.postDelayed(refreshHome, 100); }
         }
     };
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
@@ -114,10 +118,11 @@ public final class DashboardController {
             ContextCompat.registerReceiver(activity, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
             registered = true;
         }
+        loadCalendar();
         if (!searchMode) renderHome();
     }
-    public void pause() { if (registered) { activity.unregisterReceiver(receiver); registered = false; } }
-    public void destroy() { pause(); activity.adapter.unregisterDataSetObserver(observer); }
+    public void pause() { root.removeCallbacks(refreshHome); if (registered) { activity.unregisterReceiver(receiver); registered = false; } }
+    public void destroy() { destroyed = true; pause(); calendarExecutor.shutdownNow(); activity.adapter.unregisterDataSetObserver(observer); }
     public boolean back() { if (searchMode) { showHome(); return true; } return activity.isKissDefaultLauncher(); }
     public void showHome() {
         searchMode = false; alphabetMode = false;
@@ -194,16 +199,23 @@ public final class DashboardController {
             card.addView(text("Calendar access is optional. Events are read only.", textSp, false));
             card.addView(button("Allow calendar access", () -> androidx.core.app.ActivityCompat.requestPermissions(activity, new String[]{Manifest.permission.READ_CALENDAR}, 741)));
         } else {
+            for (String line : calendarLines) card.addView(text(line, textSp, false));
+        }
+        addCard(card);
+    }
+    private void loadCalendar() {
+        if (destroyed || ContextCompat.checkSelfPermission(activity, Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) return;
+        calendarExecutor.execute(() -> {
+            List<String> lines = new ArrayList<>();
             try (Cursor c = CalendarContract.Instances.query(activity.getContentResolver(), new String[]{CalendarContract.Instances.TITLE, CalendarContract.Instances.BEGIN}, System.currentTimeMillis(), System.currentTimeMillis() + 7L * 86400000)) {
                 int count = 0;
                 while (c != null && c.moveToNext() && count++ < 5) {
-                    card.addView(text(c.getString(0), textSp, true));
-                    card.addView(text(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(new Date(c.getLong(1))), textSp, false));
+                    lines.add(c.getString(0) + "\n" + DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(new Date(c.getLong(1))));
                 }
-                if (count == 0) card.addView(text("No events in the next seven days", textSp, false));
-            } catch (SecurityException e) { card.addView(text("Calendar permission unavailable", textSp, false)); }
-        }
-        addCard(card);
+                if (lines.isEmpty()) lines.add("No events in the next seven days");
+            } catch (SecurityException | IllegalArgumentException e) { lines.add("Calendar unavailable"); }
+            root.post(() -> { if (!destroyed) { calendarLines = lines; if (!searchMode) renderHome(); } });
+        });
     }
     private void renderDock() {
         if (root.getChildCount() > 3) root.removeViewAt(3);
@@ -231,7 +243,7 @@ public final class DashboardController {
         image.setOnLongClickListener(v -> { new AlertDialog.Builder(activity).setTitle(pojo.getName()).setItems(new String[]{"Remove favorite"}, (d, w) -> { data().removeFromFavorites(pojo.id); renderHome(); }).show(); return true; }); return image;
     }
     public void sharedSearch(String value) { showSearch(); query.setText(value); }
-    public void permissionChanged() { if (!searchMode) renderHome(); }
+    public void permissionChanged() { loadCalendar(); if (!searchMode) renderHome(); }
     public void showSearch() {
         searchMode = true; alphabetMode = false; root.removeAllViews();
         LinearLayout header = row(); header.addView(button("Home", this::showHome)); query = new EditText(activity);
