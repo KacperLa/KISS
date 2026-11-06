@@ -46,3 +46,9 @@ Tap a notification card to open its content intent. Swipe horizontally at least 
 User-triggered notification card/action launches now pass Android sender-side activity-launch options on API 34+. API 36 uses ALLOW_IF_VISIBLE; API 34–35 uses the older supported mode, guarded by the resumed, non-destroyed activity lifecycle. Older Android retains the existing PendingIntent path. No background automatic launch, fallback launch that loses the notification target, or permission changes were added. Phone testing is still needed.
 
 Column preferences now apply separately to wide/square versus narrow window layouts, identified from window width/height ratio (at least 0.75 is wide). Auto chooses two on wide layouts and one on narrow layouts. Bounds are independent of keyboard height and display scaling. Old global column overrides are intentionally not migrated because forcing two globally caused the cover-screen regression. This is window geometry, not hardware hinge detection.
+
+## Calendar and notification action polish
+
+Upcoming events have a narrow rounded color bar at the left using event display color, calendar color fallback, then launcher accent only if neither is provided. Text remains readable without depending on color. Notification actions lay out horizontally, aligned right, wrapping only when actual measured labels overflow. Media notifications are recognized by Android category/media-session metadata and show their provided action icons centered in supplied order with accessible labels and 56dp targets. Missing icons fall back to action text. No extra permission or media-session access is requested.
+
+The A–Z index has no persistent background or shadow. Its full 56dp touch region, sliding/jump behavior, accessibility actions and temporary selected-letter feedback remain.

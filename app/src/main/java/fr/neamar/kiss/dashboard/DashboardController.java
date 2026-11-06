@@ -60,7 +60,7 @@ public final class DashboardController {
     private boolean resumed;
     private float textSp;
     private final java.util.concurrent.ExecutorService calendarExecutor = java.util.concurrent.Executors.newSingleThreadExecutor();
-    private List<String> calendarLines = Collections.singletonList("Loading calendar…");
+    private List<CalendarEntry> calendarLines = Collections.singletonList(new CalendarEntry("Loading calendar…", null));
     private boolean destroyed;
     private final Runnable refreshHome = () -> { if (!searchMode && !destroyed) renderHome(); };
     private static final int BG = Color.rgb(8, 7, 12);
@@ -213,19 +213,90 @@ public final class DashboardController {
                     toggle.setVisibility(overflow ? View.VISIBLE : View.GONE);
                 });
             }
-            LinearLayout actions = column(); actions.setGravity(Gravity.END);
+            boolean media = Notification.CATEGORY_TRANSPORT.equals(n.category) || n.extras.containsKey(Notification.EXTRA_MEDIA_SESSION);
+            WrappingActions actions = new WrappingActions(activity, media);
             if (n.actions != null) for (Notification.Action action : n.actions) {
                 if (action.actionIntent == null || action.getRemoteInputs() != null) continue;
-                TextView actionButton = button(String.valueOf(action.title), () -> send(action.actionIntent));
-                actionButton.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-                actions.addView(actionButton);
+                if (media) {
+                    android.graphics.drawable.Drawable actionIcon = null;
+                    try {
+                        if (Build.VERSION.SDK_INT >= 23 && action.getIcon() != null) actionIcon = action.getIcon().loadDrawable(activity);
+                        else if (action.icon != 0) actionIcon = activity.getPackageManager().getResourcesForApplication(sbn.getPackageName()).getDrawable(action.icon);
+                    } catch (PackageManager.NameNotFoundException | android.content.res.Resources.NotFoundException ignored) { }
+                    if (actionIcon != null) {
+                        ImageButton actionButton = new ImageButton(activity);
+                        actionButton.setImageDrawable(actionIcon);
+                        actionButton.setImageTintList(android.content.res.ColorStateList.valueOf(ACCENT));
+                        actionButton.setContentDescription(action.title);
+                        actionButton.setPadding(dp(14), dp(14), dp(14), dp(14));
+                        actionButton.setBackground(interactionBackground());
+                        actionButton.setOnClickListener(v -> send(action.actionIntent));
+                        actions.addView(actionButton, new ViewGroup.LayoutParams(dp(56), dp(56)));
+                    } else {
+                        actions.addView(button(String.valueOf(action.title), () -> send(action.actionIntent)));
+                    }
+                } else {
+                    TextView actionButton = button(String.valueOf(action.title), () -> send(action.actionIntent));
+                    actionButton.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+                    actions.addView(actionButton);
+                }
             }
-            if (actions.getChildCount() > 0) card.addView(actions);
+            if (actions.getChildCount() > 0) card.addView(actions, new LinearLayout.LayoutParams(-1, -2));
             attachNotificationGestures(card, sbn);
             addCard(card);
         }
         renderTasks(); renderCalendar(); renderDock();
         scroll.post(() -> scroll.scrollTo(0, offset));
+    }
+    /** Right-aligned action rows wrap only when their actual measured labels do not fit. */
+    private final class WrappingActions extends ViewGroup {
+        private final List<List<View>> lines = new ArrayList<>();
+        private final List<Integer> widths = new ArrayList<>();
+        private final List<Integer> heights = new ArrayList<>();
+        private final boolean centered;\n        WrappingActions(Context context, boolean centered) { super(context); this.centered = centered; }
+        @Override protected LayoutParams generateDefaultLayoutParams() {
+            return new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        }
+        @Override protected void onMeasure(int widthSpec, int heightSpec) {
+            lines.clear(); widths.clear(); heights.clear();
+            int available = Math.max(0, MeasureSpec.getSize(widthSpec) - getPaddingLeft() - getPaddingRight());
+            List<View> line = new ArrayList<>(); int lineWidth = 0, lineHeight = 0, totalHeight = 0, widest = 0;
+            for (int i = 0; i < getChildCount(); i++) {
+                View child = getChildAt(i); if (child.getVisibility() == GONE) continue;
+                LayoutParams lp = child.getLayoutParams();
+                int childWidth = lp.width >= 0 ? Math.min(lp.width, available) : available;
+                child.measure(MeasureSpec.makeMeasureSpec(childWidth, lp.width >= 0 ? MeasureSpec.EXACTLY : MeasureSpec.AT_MOST),
+                    MeasureSpec.makeMeasureSpec(lp.height >= 0 ? lp.height : 0, lp.height >= 0 ? MeasureSpec.EXACTLY : MeasureSpec.UNSPECIFIED));
+                int next = child.getMeasuredWidth() + (line.isEmpty() ? 0 : dp(8));
+                if (!line.isEmpty() && lineWidth + next > available) {
+                    lines.add(line); widths.add(lineWidth); heights.add(lineHeight);
+                    widest = Math.max(widest, lineWidth); totalHeight += lineHeight + dp(4);
+                    line = new ArrayList<>(); lineWidth = 0; lineHeight = 0; next = child.getMeasuredWidth();
+                }
+                line.add(child); lineWidth += next; lineHeight = Math.max(lineHeight, child.getMeasuredHeight());
+            }
+            if (!line.isEmpty()) {
+                lines.add(line); widths.add(lineWidth); heights.add(lineHeight);
+                widest = Math.max(widest, lineWidth); totalHeight += lineHeight;
+            }
+            setMeasuredDimension(resolveSize(widest + getPaddingLeft() + getPaddingRight(), widthSpec),
+                resolveSize(totalHeight + getPaddingTop() + getPaddingBottom(), heightSpec));
+        }
+        @Override protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+            int y = getPaddingTop();
+            boolean rtl = getLayoutDirection() == LAYOUT_DIRECTION_RTL;
+            for (int i = 0; i < lines.size(); i++) {
+                int lineLeft = centered ? getPaddingLeft() + (getWidth() - getPaddingLeft() - getPaddingRight() - widths.get(i)) / 2
+                    : (rtl ? getPaddingLeft() : getWidth() - getPaddingRight() - widths.get(i));
+                int x = rtl ? lineLeft + widths.get(i) : lineLeft;
+                for (View child : lines.get(i)) {
+                    int w = child.getMeasuredWidth(), h = child.getMeasuredHeight();
+                    if (rtl) { child.layout(x - w, y, x, y + h); x -= w + dp(8); }
+                    else { child.layout(x, y, x + w, y + h); x += w + dp(8); }
+                }
+                y += heights.get(i) + dp(4);
+            }
+        }
     }
     private void attachNotificationGestures(View card, StatusBarNotification notification) {
         PendingIntent intent = notification.getNotification().contentIntent;
@@ -310,21 +381,39 @@ public final class DashboardController {
             card.addView(text("Calendar access is optional. Events are read only.", textSp, false));
             card.addView(button("Allow calendar access", () -> androidx.core.app.ActivityCompat.requestPermissions(activity, new String[]{Manifest.permission.READ_CALENDAR}, 741)));
         } else {
-            for (String line : calendarLines) card.addView(text(line, textSp, false));
+            for (CalendarEntry event : calendarLines) {
+                if (event.color == null) { card.addView(text(event.label, textSp, false)); continue; }
+                LinearLayout eventRow = row();
+                eventRow.setPadding(dp(4), dp(8), dp(4), dp(8));
+                View colorBar = new View(activity);
+                GradientDrawable capsule = background(event.color); capsule.setCornerRadius(dp(3));
+                colorBar.setBackground(capsule);
+                colorBar.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+                LinearLayout.LayoutParams barLayout = new LinearLayout.LayoutParams(dp(6), -1);
+                barLayout.setMargins(0, dp(6), dp(8), dp(6));
+                eventRow.addView(colorBar, barLayout);
+                eventRow.addView(text(event.label, textSp, false), new LinearLayout.LayoutParams(0, -2, 1));
+                card.addView(eventRow, new LinearLayout.LayoutParams(-1, -2));
+            }
         }
         addCard(card);
+    }
+    private static final class CalendarEntry {
+        final String label;
+        final Integer color;
+        CalendarEntry(String label, Integer color) { this.label = label; this.color = color; }
     }
     private void loadCalendar() {
         if (destroyed || ContextCompat.checkSelfPermission(activity, Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) return;
         calendarExecutor.execute(() -> {
-            List<String> lines = new ArrayList<>();
-            try (Cursor c = CalendarContract.Instances.query(activity.getContentResolver(), new String[]{CalendarContract.Instances.TITLE, CalendarContract.Instances.BEGIN}, System.currentTimeMillis(), System.currentTimeMillis() + 7L * 86400000)) {
+            List<CalendarEntry> lines = new ArrayList<>();
+            try (Cursor c = CalendarContract.Instances.query(activity.getContentResolver(), new String[]{CalendarContract.Instances.TITLE, CalendarContract.Instances.BEGIN, CalendarContract.Instances.DISPLAY_COLOR, CalendarContract.Instances.CALENDAR_COLOR}, System.currentTimeMillis(), System.currentTimeMillis() + 7L * 86400000)) {
                 int count = 0;
                 while (c != null && c.moveToNext() && count++ < 5) {
-                    lines.add(c.getString(0) + "\n" + DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(new Date(c.getLong(1))));
+                    lines.add(new CalendarEntry(c.getString(0) + "\n" + DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(new Date(c.getLong(1))), CalendarColorPolicy.resolve(c.isNull(2) ? null : c.getInt(2), c.isNull(3) ? null : c.getInt(3), ACCENT)));
                 }
-                if (lines.isEmpty()) lines.add("No events in the next seven days");
-            } catch (SecurityException | IllegalArgumentException e) { lines.add("Calendar unavailable"); }
+                if (lines.isEmpty()) lines.add(new CalendarEntry("No events in the next seven days", null));
+            } catch (SecurityException | IllegalArgumentException e) { lines.add(new CalendarEntry("Calendar unavailable", null)); }
             root.post(() -> { if (!destroyed) { calendarLines = lines; if (!searchMode) renderHome(); } });
         });
     }
@@ -567,7 +656,7 @@ public final class DashboardController {
         private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
         private int selected;
         AlphabetRail(Context context) {
-            super(context); setBackground(background(CARD)); setFocusable(true); setClickable(true);
+            super(context); setBackgroundColor(Color.TRANSPARENT); setFocusable(true); setClickable(true);
             setContentDescription("Alphabet index. Swipe up or down to jump to a letter in the app list.");
             paint.setColor(ACCENT); paint.setTextAlign(android.graphics.Paint.Align.CENTER);
             paint.setTypeface(Typeface.DEFAULT_BOLD);
