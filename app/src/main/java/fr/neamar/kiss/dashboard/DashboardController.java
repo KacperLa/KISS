@@ -261,7 +261,8 @@ public final class DashboardController {
                 id = action.getIcon().getResId();
             if (id != 0) resourceName = sourceContext.getResources().getResourceEntryName(id);
         } catch (RuntimeException ignored) { }
-        String name = (resourceName.isEmpty() ? String.valueOf(action.title) : resourceName).toLowerCase(Locale.ROOT);
+        for (String candidate : new String[]{resourceName, String.valueOf(action.title)}) {
+        String name = candidate.toLowerCase(Locale.ROOT);
         if (name.contains("stop")) return R.drawable.dashboard_media_stop;
         if (name.contains("pause")) return android.R.drawable.ic_media_pause;
         if (name.contains("previous") || name.contains("prev")) return android.R.drawable.ic_media_previous;
@@ -269,6 +270,7 @@ public final class DashboardController {
         if (name.contains("rewind")) return android.R.drawable.ic_media_rew;
         if (name.contains("forward")) return android.R.drawable.ic_media_ff;
         if (name.contains("play")) return android.R.drawable.ic_media_play;
+        }
         // Unknown controls retain their real intent/accessible label instead of inventing a transport action.
         return android.R.drawable.ic_menu_more;
     }
