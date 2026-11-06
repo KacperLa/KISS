@@ -137,6 +137,8 @@ public final class DashboardController {
     public boolean back() { if (searchMode) { showHome(); return true; } return activity.isKissDefaultLauncher(); }
     public void showHome() {
         searchMode = false; navigatingTag = false;
+        if (query != null) query.clearFocus();
+        if (controlsDialog != null) { controlsDialog.setOnDismissListener(null); controlsDialog.dismiss(); controlsDialog = null; }
         activity.searchEditText.setText("");
         ((InputMethodManager) activity.getSystemService(Context.INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(root.getWindowToken(), 0);
         root.removeAllViews();
@@ -297,7 +299,6 @@ public final class DashboardController {
     public void showSearch() {
         searchMode = true; navigatingTag = false; root.removeAllViews(); dockView = null;
         LinearLayout header = row();
-        header.addView(iconButton(R.drawable.dashboard_back, "Back to Home", this::showHome), new LinearLayout.LayoutParams(dp(56), dp(56)));
         query = new EditText(activity);
         query.setSingleLine(true); query.setTextSize(textSp); query.setTextColor(Color.WHITE); query.setHintTextColor(ACCENT); query.setHint("Search apps and more");
         query.setContentDescription("Search apps and more");
@@ -323,7 +324,11 @@ public final class DashboardController {
         });
         activity.searchEditText.setText(""); activity.showHistory(); renderSearchResults();
         query.requestFocus();
-        query.post(() -> ((InputMethodManager) activity.getSystemService(Context.INPUT_METHOD_SERVICE)).showSoftInput(query, InputMethodManager.SHOW_IMPLICIT));
+        EditText focusedQuery = query;
+        query.post(() -> {
+            if (searchMode && query == focusedQuery && focusedQuery.isAttachedToWindow())
+                ((InputMethodManager) activity.getSystemService(Context.INPUT_METHOD_SERVICE)).showSoftInput(focusedQuery, InputMethodManager.SHOW_IMPLICIT);
+        });
     }
     private int appColumns() {
         int width = root.getWidth() > 0 ? root.getWidth() - root.getPaddingLeft() - root.getPaddingRight() - dp(56)

@@ -34,3 +34,5 @@ See upstream `qa-suite.md` plus the checks above. CI builds on the prototype bra
 ## Third prototype adjustments
 
 Quick controls now offers App columns: Auto, 1 column, or 2 columns. Auto follows available list width; explicit choices persist across folding and rotation without shrinking font size. App names retain their full accessibility labels and visual trailing fade. Notification action buttons align to the trailing edge.
+
+The search input uses the entire header width with no back icon. Android Home returns to the dashboard when this app is the selected default launcher. Standard Back first dismisses the keyboard where Android consumes it, then returns from search. No default launcher setting is changed by the build.
