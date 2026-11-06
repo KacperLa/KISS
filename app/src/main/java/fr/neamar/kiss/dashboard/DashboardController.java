@@ -253,7 +253,8 @@ public final class DashboardController {
         private final List<List<View>> lines = new ArrayList<>();
         private final List<Integer> widths = new ArrayList<>();
         private final List<Integer> heights = new ArrayList<>();
-        private final boolean centered;\n        WrappingActions(Context context, boolean centered) { super(context); this.centered = centered; }
+        private final boolean centered;
+        WrappingActions(Context context, boolean centered) { super(context); this.centered = centered; }
         @Override protected LayoutParams generateDefaultLayoutParams() {
             return new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
         }
