@@ -101,7 +101,7 @@ public class DataHandler implements SharedPreferences.OnSharedPreferenceChangeLi
         }
 
         // Some basic providers already loaded! We need to fire the LOAD_OVER event.
-        Intent loadOver = new Intent(MainActivity.LOAD_OVER);
+        Intent loadOver = new Intent(MainActivity.LOAD_OVER).setPackage(context.getPackageName());
         this.context.sendBroadcast(loadOver);
     }
 
@@ -283,7 +283,7 @@ public class DataHandler implements SharedPreferences.OnSharedPreferenceChangeLi
         }
 
         // Providers changed! We need to fire the LOAD_OVER event.
-        Intent loadOver = new Intent(MainActivity.LOAD_OVER);
+        Intent loadOver = new Intent(MainActivity.LOAD_OVER).setPackage(context.getPackageName());
         this.context.sendBroadcast(loadOver);
     }
 
@@ -981,7 +981,7 @@ public class DataHandler implements SharedPreferences.OnSharedPreferenceChangeLi
     }
 
     public void refreshFavorites() {
-        Intent startLoad = new Intent(MainActivity.REFRESH_FAVORITES);
+        Intent startLoad = new Intent(MainActivity.REFRESH_FAVORITES).setPackage(context.getPackageName());
         context.sendBroadcast(startLoad);
     }
 

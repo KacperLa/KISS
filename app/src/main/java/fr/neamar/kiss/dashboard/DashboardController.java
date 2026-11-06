@@ -285,7 +285,7 @@ public final class DashboardController {
         item.addView(icon, new LinearLayout.LayoutParams(dp(40), dp(40)));
         item.addView(text(result.getPojo().getName(), textSp, false), new LinearLayout.LayoutParams(0, -2, 1));
         item.setMinimumHeight(dp(64)); item.setFocusable(true); item.setContentDescription(result.getPojo().getName());
-        item.setOnClickListener(v -> { result.launch(activity, v, activity); showHome(); });
+        item.setOnClickListener(v -> { result.launch(activity, v, activity); if (!(result.getPojo() instanceof TagDummyPojo)) showHome(); });
         item.setOnLongClickListener(v -> { Pojo pojo = result.getPojo(); boolean favorite = data().hasFavorite(pojo.id);
             new AlertDialog.Builder(activity).setTitle(pojo.getName()).setItems(new String[]{favorite ? "Remove favorite" : "Add favorite"}, (d, which) -> {
                 if (favorite) data().removeFromFavorites(pojo.id); else data().addToFavorites(pojo.id);
