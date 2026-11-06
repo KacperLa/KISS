@@ -68,3 +68,5 @@ A single pointer stream now crosses notifications, tasks, calendar and A–Z in 
 ## Integrated feed position indicator
 
 The native Home scrollbar is hidden. A contrasting circle moves on the right navigation rail according to actual section/letter heading positions, interpolating between anchors rather than treating the whole feed as a uniform percentage. Grabbing the circle scrubs the feed smoothly; other section/alphabet gestures, selected-letter popup, accessibility controls and separate Search remain. Notification app icons now use KISS IconsHandler masking and existing icon-shape preferences; media and navigation glyphs are not masked.
+
+Call notifications (platform call category or CallStyle) center offered controls. Exact recognized English hang-up/mute/unmute labels use circular controls; unknown/localized labels retain text and real action intent. No controls are manufactured; microphone glyph reflects offered mute/unmute action, not an independently queried audio state. Material call/microphone vectors: Google Material Design Icons, Apache-2.0.

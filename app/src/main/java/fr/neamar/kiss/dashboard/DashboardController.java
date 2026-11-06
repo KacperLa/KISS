@@ -262,10 +262,29 @@ public final class DashboardController {
             boolean media = Notification.CATEGORY_TRANSPORT.equals(n.category) || n.extras.containsKey(Notification.EXTRA_MEDIA_SESSION)
                 || n.extras.containsKey("android.compactActions")
                 || String.valueOf(n.extras.getString("android.template", "")).contains("MediaStyle");
-            WrappingActions actions = new WrappingActions(activity, media);
+            // Call classification uses platform metadata, never the app name or notification prose.
+            boolean call = Notification.CATEGORY_CALL.equals(n.category)
+                || "android.app.Notification$CallStyle".equals(n.extras.getString("android.template", ""));
+            WrappingActions actions = new WrappingActions(activity, media || call);
             if (n.actions != null) for (Notification.Action action : n.actions) {
                 if (action.actionIntent == null || action.getRemoteInputs() != null) continue;
-                if (media) {
+                CallActionPolicy.Kind callKind = CallActionPolicy.classify(call, action.title);
+                if (callKind != CallActionPolicy.Kind.TEXT) {
+                    ImageButton control = new ImageButton(activity);
+                    control.setImageResource(callKind == CallActionPolicy.Kind.HANG_UP ? R.drawable.dashboard_call_end
+                        : callKind == CallActionPolicy.Kind.MUTE ? R.drawable.dashboard_mic_off : R.drawable.dashboard_mic);
+                    control.setImageTintList(android.content.res.ColorStateList.valueOf(Color.WHITE));
+                    GradientDrawable circle = new GradientDrawable();
+                    circle.setShape(GradientDrawable.OVAL);
+                    circle.setColor(callKind == CallActionPolicy.Kind.HANG_UP ? Color.rgb(184, 27, 42) : Color.rgb(65, 72, 87));
+                    control.setBackground(new android.graphics.drawable.RippleDrawable(
+                        android.content.res.ColorStateList.valueOf(0x55FFFFFF), circle, null));
+                    control.setContentDescription(action.title);
+                    control.setPadding(dp(14), dp(14), dp(14), dp(14));
+                    control.setOnClickListener(v -> send(action.actionIntent));
+                    control.setOnLongClickListener(v -> { Toast.makeText(activity, action.title, Toast.LENGTH_SHORT).show(); return true; });
+                    actions.addView(control, new ViewGroup.LayoutParams(dp(56), dp(56)));
+                } else if (media && !call) {
                     android.graphics.drawable.Drawable actionIcon = null;
                     Context sourceContext = activity;
                     try { sourceContext = activity.createPackageContext(sbn.getPackageName(), 0); }
