@@ -60,3 +60,7 @@ Media icon lookup now uses the source application context, recognizes MediaStyle
 ## Unified Home feed
 
 Home contains notifications, tasks, upcoming calendar, then all apps alphabetically in one continuous scroll. Its fixed right rail has section jumps, A–Z sliding navigation and a bottom magnifier that opens typed KISS search. Search no longer shows recent apps or an alphabet rail. The favorites/recent-app dock is unchanged. Home no longer intercepts pull-down to open search, leaving normal system shade gestures alone. Adaptive app columns and full accessible app labels remain.
+
+## Continuous rail gesture
+
+A single pointer stream now crosses notifications, tasks, calendar and A–Z in either direction without lifting. Existing labeled section buttons and alphabet accessibility actions remain for assistive navigation. The bottom Search control remains a separate tap; sliding into it does not launch search. Ordinary home refresh waits until rail release so jump targets remain stable.

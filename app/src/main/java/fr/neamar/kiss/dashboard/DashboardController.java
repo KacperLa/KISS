@@ -50,6 +50,7 @@ public final class DashboardController {
     private View dockView;
     private View alphabetRail;
     private View notificationTarget, tasksTarget, calendarTarget;
+    private boolean railDragging;
     private FrameLayout searchFrame;
     private AlertDialog controlsDialog;
     private final Map<Character, View> alphabetTargets = new HashMap<>();
@@ -138,7 +139,7 @@ public final class DashboardController {
         loadCalendar();
         if (!searchMode) renderHome();
     }
-    public void pause() { resumed = false; notificationTouchOwner = null; root.removeCallbacks(refreshHome); if (registered) { activity.unregisterReceiver(receiver); registered = false; } }
+    public void pause() { resumed = false; railDragging = false; notificationTouchOwner = null; root.removeCallbacks(refreshHome); if (registered) { activity.unregisterReceiver(receiver); registered = false; } }
     public void destroy() { destroyed = true; pause(); calendarExecutor.shutdownNow(); activity.adapter.unregisterDataSetObserver(observer); }
     public boolean back() { if (searchMode) { showHome(); return true; } return activity.isKissDefaultLauncher(); }
     public void showHome() {
@@ -151,7 +152,7 @@ public final class DashboardController {
         searchFrame = new FrameLayout(activity); LinearLayout homeBody = row();
         scroll = new ScrollView(activity); content = column(); scroll.addView(content);
         homeBody.addView(scroll, new LinearLayout.LayoutParams(0, -1, 1));
-        LinearLayout rail = column();
+        LinearLayout rail = new ContinuousRail(activity);
         rail.addView(iconButton(android.R.drawable.ic_dialog_info, "Jump to notifications", () -> jumpToSection(notificationTarget)), new LinearLayout.LayoutParams(dp(56), dp(48)));
         rail.addView(iconButton(android.R.drawable.checkbox_on_background, "Jump to tasks", () -> jumpToSection(tasksTarget)), new LinearLayout.LayoutParams(dp(56), dp(48)));
         rail.addView(iconButton(android.R.drawable.ic_menu_my_calendar, "Jump to calendar", () -> jumpToSection(calendarTarget)), new LinearLayout.LayoutParams(dp(56), dp(48)));
@@ -181,7 +182,7 @@ public final class DashboardController {
     private void renderHome() {
         if (searchMode || content == null) return;
         KeyguardManager keyguard = (KeyguardManager) activity.getSystemService(Context.KEYGUARD_SERVICE);
-        if (notificationTouchOwner != null && !keyguard.isKeyguardLocked()) return;
+        if ((notificationTouchOwner != null || railDragging) && !keyguard.isKeyguardLocked()) return;
         int offset = scroll.getScrollY();
         Object anchorTag = null; int anchorDelta = 0;
         for (int i = 0; i < content.getChildCount(); i++) {
@@ -736,6 +737,43 @@ public final class DashboardController {
         } catch (SecurityException e) {
             Toast.makeText(activity, "Android could not open this notification", Toast.LENGTH_SHORT).show();
         }
+    }
+    /** Own the entire section/alphabet pointer stream, while leaving Search as a normal button. */
+    private final class ContinuousRail extends LinearLayout {
+        private int pointer = -1, selected = -1;
+        ContinuousRail(Context context) { super(context); setOrientation(VERTICAL); }
+        @Override public boolean dispatchTouchEvent(MotionEvent event) {
+            int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN) {
+                if (getChildCount() < 5 || event.getY() >= getChildAt(4).getTop()) return super.dispatchTouchEvent(event);
+                pointer = event.getPointerId(0); selected = -1; railDragging = true;
+                getParent().requestDisallowInterceptTouchEvent(true);
+                selectAt(event.getY()); return true;
+            }
+            if (pointer == -1) return super.dispatchTouchEvent(event);
+            int index = event.findPointerIndex(pointer);
+            if (action == MotionEvent.ACTION_CANCEL || action == MotionEvent.ACTION_UP
+                || (action == MotionEvent.ACTION_POINTER_UP && event.getPointerId(event.getActionIndex()) == pointer) || index < 0) {
+                pointer = -1; railDragging = false; getParent().requestDisallowInterceptTouchEvent(false);
+                if (letterBubble != null) letterBubble.setVisibility(View.GONE);
+                root.removeCallbacks(refreshHome); root.postDelayed(refreshHome, 200);
+                if (action == MotionEvent.ACTION_UP) performClick();
+                return true;
+            }
+            if (action == MotionEvent.ACTION_MOVE) selectAt(event.getY(index));
+            return true;
+        }
+        private void selectAt(float y) {
+            View letters = getChildAt(3);
+            int next = RailNavigationPolicy.index(y, getChildAt(0).getBottom(), getChildAt(1).getBottom(), letters.getTop(), letters.getBottom());
+            if (next == selected) return;
+            selected = next;
+            if (next >= 3) { showAlphabet((char) ('A' + next - 3)); return; }
+            View target = next == 0 ? notificationTarget : next == 1 ? tasksTarget : calendarTarget;
+            if (target != null && target.isAttachedToWindow()) scroll.scrollTo(0, target.getTop());
+            letterBubble.setVisibility(View.GONE);
+        }
+        @Override public boolean performClick() { return super.performClick(); }
     }
     /** A proportional rail never clips A–Z at high Android font scaling. Selected letter is enlarged in content. */
     private final class AlphabetRail extends View {
