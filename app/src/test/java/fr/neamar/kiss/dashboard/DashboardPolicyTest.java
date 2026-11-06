@@ -15,6 +15,20 @@ class DashboardPolicyTest {
         assertEquals(25, DashboardPolicy.letterIndex(280, 260));
         assertEquals(0, DashboardPolicy.letterIndex(10, 0));
     }
+    @Test void appGridAdaptsWithoutShrinkingText() {
+        assertEquals(1, DashboardPolicy.appColumns(359));
+        assertEquals(1, DashboardPolicy.appColumns(599));
+        assertEquals(2, DashboardPolicy.appColumns(600));
+        assertEquals(2, DashboardPolicy.appColumns(900));
+    }
+    @Test void indexNormalizesLatinInitialsWithoutHidingOtherNames() {
+        assertEquals('M', DashboardPolicy.initialLetter("Messages"));
+        assertEquals('E', DashboardPolicy.initialLetter("École"));
+        assertEquals('A', DashboardPolicy.initialLetter("alarm"));
+        assertEquals(0, DashboardPolicy.initialLetter("123 Notes"));
+        assertEquals(0, DashboardPolicy.initialLetter(""));
+        assertEquals(0, DashboardPolicy.initialLetter(null));
+    }
     @Test void dockAdaptsToWidth() {
         assertEquals(4, DashboardPolicy.favoriteCount(400));
         assertEquals(5, DashboardPolicy.favoriteCount(800));

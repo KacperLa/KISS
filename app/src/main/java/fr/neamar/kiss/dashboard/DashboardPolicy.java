@@ -10,5 +10,12 @@ public final class DashboardPolicy {
         if (height <= 0) return 0;
         return Math.max(0, Math.min(25, (int) (y / height * 26)));
     }
+    public static int appColumns(int availableWidthDp) { return availableWidthDp >= 600 ? 2 : 1; }
+    public static char initialLetter(String name) {
+        if (name == null || name.isEmpty()) return 0;
+        String normalized = java.text.Normalizer.normalize(name, java.text.Normalizer.Form.NFD);
+        char initial = Character.toUpperCase(normalized.charAt(0));
+        return initial >= 'A' && initial <= 'Z' ? initial : 0;
+    }
     public static int favoriteCount(int widthDp) { return widthDp >= 600 ? 5 : 4; }
 }

@@ -5,11 +5,12 @@ This is a GPL-3.0-or-later KISS fork, based on upstream commit 242682663ac581e8e
 The approved visual references are retained separately in the owner's Space and local working copy. They are design references, not screenshots of the running app.
 
 ## Implemented first pass
-- Full-width notification dashboard, Android ranking order, no persisted notification content, Open and Dismiss actions.
+- Full-width notification dashboard with app icons, Android ranking order, no persisted notification content, Open and Dismiss actions.
 - Bottom icon dock: up to five KISS favorite apps on wide screens, four on narrow screens, and two recently launched apps excluding favorites. The dock scrolls horizontally instead of shrinking targets.
 - Local editable tasks and optional read-only device calendar events for the next week.
-- Pull down from the top of the home feed to search; an explicit accessible Search button is also available.
-- Existing KISS provider/query/history pipeline drives search results. Alphabet browsing is a separate view over KISS's loaded app provider. Long-press a result to choose favorites.
+- Home is feed-only, with a fixed quick-controls button at the far left of the bottom dock. Pull down from the top of the feed to search.
+- Existing KISS provider/query/history pipeline drives typed search. Empty search shows up to six recent apps followed by all apps in one continuous alphabetical list; A–Z jumps within that list. Search has only a back arrow and wide input. Long-press a result to choose favorites.
+- App rows are transparent over system wallpaper, with temporary press/focus feedback. Two columns are used when the app-list area is at least 600dp wide; otherwise one column. Long app names fade at the trailing edge without ellipses, and accessibility retains the full name.
 - High contrast lavender/black styling, wrapping text, 20–60sp base text slider (Android font scaling still applies).
 - Quick-controls dialog with Wi-Fi, Bluetooth, display and general settings shortcuts.
 - Separate application ID `app.dot.accessiblekiss` (`.debug` for test builds), so this does not replace upstream KISS.
@@ -20,7 +21,7 @@ The approved visual references are retained separately in the owner's Space and 
 - Calendar uses an asynchronous read-only query, refreshed on resume. Calendar source permissions are only requested after an explicit tap.
 - Task integration is local only; there is no external task-service sync.
 - Quick controls currently open system settings; direct brightness/flashlight controls are not implemented yet.
-- The initial A–Z view filters from the selected letter onward; final polished sliding index and non-Latin indexing need iteration.
+- A–Z navigates Latin initials (including decomposed accented initials). Other names remain in the full list; non-Latin indexing needs iteration.
 - No release signing key is included or configured. CI debug APK uses an ephemeral debug signer; it is for testing, not a stable update channel.
 
 ## Build and test
