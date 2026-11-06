@@ -2,6 +2,12 @@ package fr.neamar.kiss.dashboard;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 class RailScrollMappingTest {
+    @Test void terminalAnchorReachesRowsBelowLastHeading() {
+        float[] feed = {0, 1000, 1800};
+        float[] rail = {24, 350, 374};
+        assertEquals(1400f, RailScrollMapping.interpolate(362, rail, feed));
+        assertEquals(1800f, RailScrollMapping.interpolate(374, rail, feed));
+    }
     @Test void followsSemanticAnchorsAndInterpolatesBetweenSections() {
         float[] feed = {0, 1000, 1200, 2000, 2600};
         float[] rail = {24, 72, 120, 170, 400};

@@ -52,6 +52,7 @@ public final class DashboardController {
     private View notificationTarget, tasksTarget, calendarTarget;
     private View homeAppTail, homeLastHeading;
     private boolean railDragging;
+    private ContinuousRail homeRail;
     private FrameLayout searchFrame;
     private final Map<Character, View> alphabetTargets = new HashMap<>();
     private int renderedColumns = 1;
@@ -152,10 +153,9 @@ public final class DashboardController {
         ((InputMethodManager) activity.getSystemService(Context.INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(root.getWindowToken(), 0);
         root.removeAllViews();
         searchFrame = new FrameLayout(activity); LinearLayout homeBody = row();
-        scroll = new ScrollView(activity); scroll.setVerticalScrollBarEnabled(false); scroll.setHorizontalScrollBarEnabled(false); content = column(); scroll.addView(content);
+        scroll = new FeedScrollView(activity); scroll.setVerticalScrollBarEnabled(false); scroll.setHorizontalScrollBarEnabled(false); content = column(); scroll.addView(content);
         homeBody.addView(scroll, new LinearLayout.LayoutParams(0, -1, 1));
-        ContinuousRail rail = new ContinuousRail(activity);
-        scroll.getViewTreeObserver().addOnScrollChangedListener(rail::invalidate);
+        ContinuousRail rail = new ContinuousRail(activity); homeRail = rail;
         rail.addView(iconButton(R.drawable.dashboard_notifications, "Jump to notifications", () -> jumpToSection(notificationTarget)), new LinearLayout.LayoutParams(dp(56), dp(48)));
         rail.addView(iconButton(R.drawable.dashboard_tasks, "Jump to tasks", () -> jumpToSection(tasksTarget)), new LinearLayout.LayoutParams(dp(56), dp(48)));
         rail.addView(iconButton(R.drawable.dashboard_calendar, "Jump to calendar", () -> jumpToSection(calendarTarget)), new LinearLayout.LayoutParams(dp(56), dp(48)));
@@ -746,6 +746,13 @@ public final class DashboardController {
             Toast.makeText(activity, "Android could not open this notification", Toast.LENGTH_SHORT).show();
         }
     }
+    private final class FeedScrollView extends ScrollView {
+        FeedScrollView(Context context) { super(context); }
+        @Override protected void onScrollChanged(int x, int y, int oldX, int oldY) {
+            super.onScrollChanged(x, y, oldX, oldY);
+            if (!searchMode && scroll == this && homeRail != null) homeRail.invalidate();
+        }
+    }
     /** Own the entire section/alphabet pointer stream, while leaving Search as a normal button. */
     private final class ContinuousRail extends LinearLayout {
         private int pointer = -1, selected = -1;
@@ -793,9 +800,14 @@ public final class DashboardController {
                     View heading = alphabetTargets.get(letter);
                     if (heading != null && heading.isAttachedToWindow()) {
                         feed.add((float) heading.getTop());
-                        rail.add(letters.getTop() + inset + (letters.getHeight() - 2f * inset) * (letter - 'A') / 25f);
+                        rail.add(letters.getTop() + inset + alphabetRange(letters.getHeight()) * (letter - 'A') / 25f);
                     }
                 }
+            }
+            int end = Math.max(0, content.getHeight() - scroll.getHeight());
+            if (!feed.isEmpty() && end > feed.get(feed.size() - 1) && getChildCount() >= 4) {
+                View letters = getChildAt(3);
+                feed.add((float) end); rail.add((float) (letters.getBottom() - alphabetInset(letters.getHeight())));
             }
             float[] contentPositions = new float[feed.size()], railPositions = new float[rail.size()];
             for (int i = 0; i < feed.size(); i++) { contentPositions[i] = feed.get(i); railPositions[i] = rail.get(i); }
@@ -809,7 +821,7 @@ public final class DashboardController {
             float[][] points = anchors();
             scroll.scrollTo(0, Math.round(RailScrollMapping.interpolate(y, points[1], points[0])));
             View letters = getChildAt(3);
-            int next = RailNavigationPolicy.index(indicatorY(), getChildAt(0).getBottom(), getChildAt(1).getBottom(), letters.getTop(), letters.getBottom(), alphabetInset(letters.getHeight()));
+            int next = RailNavigationPolicy.index(indicatorY(), getChildAt(0).getBottom(), getChildAt(1).getBottom(), letters.getTop(), letters.getBottom() - dp(24), alphabetInset(letters.getHeight()));
             if (next >= 3) { letterBubble.setText(String.valueOf((char) ('A' + next - 3))); letterBubble.setVisibility(View.VISIBLE); }
             else letterBubble.setVisibility(View.GONE);
             invalidate();
@@ -822,7 +834,7 @@ public final class DashboardController {
             canvas.drawCircle(x, y, radius, thumbPaint);
             View letters = getChildAt(3);
             if (y >= letters.getTop()) {
-                int index = DashboardPolicy.letterIndex(y - letters.getTop() - alphabetInset(letters.getHeight()), letters.getHeight() - 2 * alphabetInset(letters.getHeight()));
+                int index = DashboardPolicy.letterIndex(y - letters.getTop() - alphabetInset(letters.getHeight()), alphabetRange(letters.getHeight()));
                 thumbPaint.setColor(BG); thumbPaint.setTextSize(dp(22)); thumbPaint.setTypeface(Typeface.DEFAULT_BOLD); thumbPaint.setTextAlign(android.graphics.Paint.Align.CENTER);
                 canvas.drawText(String.valueOf((char) ('A' + index)), x, y - (thumbPaint.ascent() + thumbPaint.descent()) / 2f, thumbPaint);
             } else {
@@ -834,7 +846,7 @@ public final class DashboardController {
         }
         private void selectAt(float y) {
             View letters = getChildAt(3);
-            int next = RailNavigationPolicy.index(y, getChildAt(0).getBottom(), getChildAt(1).getBottom(), letters.getTop(), letters.getBottom(), alphabetInset(letters.getHeight()));
+            int next = RailNavigationPolicy.index(y, getChildAt(0).getBottom(), getChildAt(1).getBottom(), letters.getTop(), letters.getBottom() - dp(24), alphabetInset(letters.getHeight()));
             if (next == selected) return;
             selected = next;
             if (next >= 3) { showAlphabet((char) ('A' + next - 3)); return; }
@@ -845,6 +857,7 @@ public final class DashboardController {
         @Override public boolean performClick() { return super.performClick(); }
     }
     private int alphabetInset(int height) { return Math.round(Math.min(dp(28), height / 4f) / 2f + dp(4)); }
+    private int alphabetRange(int height) { return Math.max(1, height - 2 * alphabetInset(height) - dp(24)); }
     /** A proportional rail never clips A–Z at high Android font scaling. Selected letter is enlarged in content. */
     private final class AlphabetRail extends View {
         private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
@@ -859,7 +872,7 @@ public final class DashboardController {
             super.onDraw(canvas);
             float labelSize = Math.min(dp(28), getHeight() / 4f);
             paint.setTextSize(labelSize);
-            float top = labelSize / 2f + dp(4), bottom = getHeight() - top;
+            float top = labelSize / 2f + dp(4), bottom = Math.max(top, getHeight() - top - dp(24));
             float baselineOffset = -(paint.ascent() + paint.descent()) / 2f;
             canvas.drawText("A", getWidth() / 2f, top + baselineOffset, paint);
             canvas.drawText("Z", getWidth() / 2f, bottom + baselineOffset, paint);
@@ -868,7 +881,7 @@ public final class DashboardController {
         }
         @Override public boolean onTouchEvent(MotionEvent event) {
             if (event.getActionMasked() == MotionEvent.ACTION_DOWN || event.getActionMasked() == MotionEvent.ACTION_MOVE) {
-                selected = DashboardPolicy.letterIndex(event.getY() - alphabetInset(getHeight()), getHeight() - 2 * alphabetInset(getHeight())); showAlphabet((char) ('A' + selected)); return true;
+                selected = DashboardPolicy.letterIndex(event.getY() - alphabetInset(getHeight()), alphabetRange(getHeight())); showAlphabet((char) ('A' + selected)); return true;
             }
             if (event.getActionMasked() == MotionEvent.ACTION_UP || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
                 if (letterBubble != null) letterBubble.setVisibility(View.GONE); performClick(); return true;
