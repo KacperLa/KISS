@@ -68,14 +68,15 @@ public final class DashboardController {
     private final java.util.concurrent.ExecutorService calendarExecutor = java.util.concurrent.Executors.newSingleThreadExecutor();
     private List<CalendarEntry> calendarLines = Collections.singletonList(new CalendarEntry("Loading calendar…", null));
     private boolean destroyed;
-    private final Runnable refreshHome = () -> { if (!searchMode && !destroyed) renderHome(); };
+    private boolean homeRefreshPending;
+    private final Runnable refreshHome = () -> { homeRefreshPending = false; if (resumed && !searchMode && !destroyed) renderHome(); };
     private static final int BG = Color.rgb(8, 7, 12);
     private static final int CARD = Color.rgb(29, 25, 37);
     private static final int ACCENT = Color.rgb(216, 190, 255);
     private final DataSetObserver observer = new DataSetObserver() {
         @Override public void onChanged() {
             if (searchMode) renderSearchResults();
-            else if (!searchMode) { root.removeCallbacks(refreshHome); root.postDelayed(refreshHome, 100); }
+            else if (!searchMode) { scheduleHomeRefresh(); }
         }
     };
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
@@ -148,7 +149,7 @@ public final class DashboardController {
         loadCalendar();
         if (!searchMode) renderHome();
     }
-    public void pause() { resumed = false; feedTouching = false; railDragging = false; notificationTouchOwner = null; root.removeCallbacks(refreshHome); if (registered) { activity.unregisterReceiver(receiver); registered = false; } }
+    public void pause() { resumed = false; feedTouching = false; railDragging = false; notificationTouchOwner = null; cancelHomeRefresh(); if (registered) { activity.unregisterReceiver(receiver); registered = false; } }
     public void destroy() { destroyed = true; pause(); calendarExecutor.shutdownNow(); activity.adapter.unregisterDataSetObserver(observer); }
     public boolean back() { if (searchMode) { showHome(); return true; } return activity.isKissDefaultLauncher(); }
     public void showHome() {
@@ -190,8 +191,12 @@ public final class DashboardController {
             else if (!target.isInTouchMode()) { target.setFocusable(true); target.requestFocus(); }
         });
     }
+    private void cancelHomeRefresh() {
+        root.removeCallbacks(refreshHome); homeRefreshPending = false;
+    }
     private void scheduleHomeRefresh() {
-        root.removeCallbacks(refreshHome);
+        if (destroyed || !resumed || searchMode || homeRefreshPending) return;
+        homeRefreshPending = true;
         root.postDelayed(refreshHome, 120);
     }
     private void renderHome() {
@@ -201,7 +206,7 @@ public final class DashboardController {
                 || feedTouching || android.os.SystemClock.uptimeMillis() - feedLastMotion < 180)) {
             scheduleHomeRefresh(); return;
         }
-        root.removeCallbacks(refreshHome);
+        cancelHomeRefresh();
         int offset = scroll.getScrollY();
         Object anchorTag = null; int anchorDelta = 0;
         for (int i = 0; i < content.getChildCount(); i++) {
@@ -450,7 +455,7 @@ public final class DashboardController {
         }
         private void finishGesture() {
             if (notificationTouchOwner == this) notificationTouchOwner = null;
-            root.removeCallbacks(refreshHome); root.postDelayed(refreshHome, 400);
+            scheduleHomeRefresh();
         }
         private void classify(MotionEvent event) {
             if (horizontal || vertical) return;
@@ -820,7 +825,7 @@ public final class DashboardController {
                 || (action == MotionEvent.ACTION_POINTER_UP && event.getPointerId(event.getActionIndex()) == pointer) || index < 0) {
                 pointer = -1; railDragging = false; getParent().requestDisallowInterceptTouchEvent(false);
                 if (letterBubble != null) letterBubble.setVisibility(View.GONE);
-                root.removeCallbacks(refreshHome); root.postDelayed(refreshHome, 200);
+                scheduleHomeRefresh();
                 if (action == MotionEvent.ACTION_UP) performClick();
                 return true;
             }
