@@ -272,7 +272,9 @@ public final class DashboardController {
                 if (callKind != CallActionPolicy.Kind.TEXT) {
                     ImageButton control = new ImageButton(activity);
                     control.setImageResource(callKind == CallActionPolicy.Kind.HANG_UP ? R.drawable.dashboard_call_end
-                        : callKind == CallActionPolicy.Kind.MUTE ? R.drawable.dashboard_mic_off : R.drawable.dashboard_mic);
+                        : callKind == CallActionPolicy.Kind.MUTE ? R.drawable.dashboard_mic_off
+                        : callKind == CallActionPolicy.Kind.SPEAKER ? R.drawable.dashboard_speaker
+                        : callKind == CallActionPolicy.Kind.SPEAKER_OFF ? R.drawable.dashboard_speaker_off : R.drawable.dashboard_mic);
                     control.setImageTintList(android.content.res.ColorStateList.valueOf(Color.WHITE));
                     GradientDrawable circle = new GradientDrawable();
                     circle.setShape(GradientDrawable.OVAL);
