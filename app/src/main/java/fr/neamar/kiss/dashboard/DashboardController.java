@@ -62,6 +62,8 @@ public final class DashboardController {
     private boolean registered;
     private boolean resumed;
     private View notificationTouchOwner;
+    private boolean feedTouching;
+    private long feedLastMotion;
     private float textSp;
     private final java.util.concurrent.ExecutorService calendarExecutor = java.util.concurrent.Executors.newSingleThreadExecutor();
     private List<CalendarEntry> calendarLines = Collections.singletonList(new CalendarEntry("Loading calendar…", null));
@@ -78,7 +80,10 @@ public final class DashboardController {
     };
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
-            if (!searchMode) renderHome(); else if (query != null && query.length() == 0) renderSearchResults();
+            if (!searchMode) {
+                if (Intent.ACTION_SCREEN_OFF.equals(intent.getAction())) renderHome();
+                else scheduleHomeRefresh();
+            } else if (query != null && query.length() == 0) renderSearchResults();
         }
     };
 
@@ -143,7 +148,7 @@ public final class DashboardController {
         loadCalendar();
         if (!searchMode) renderHome();
     }
-    public void pause() { resumed = false; railDragging = false; notificationTouchOwner = null; root.removeCallbacks(refreshHome); if (registered) { activity.unregisterReceiver(receiver); registered = false; } }
+    public void pause() { resumed = false; feedTouching = false; railDragging = false; notificationTouchOwner = null; root.removeCallbacks(refreshHome); if (registered) { activity.unregisterReceiver(receiver); registered = false; } }
     public void destroy() { destroyed = true; pause(); calendarExecutor.shutdownNow(); activity.adapter.unregisterDataSetObserver(observer); }
     public boolean back() { if (searchMode) { showHome(); return true; } return activity.isKissDefaultLauncher(); }
     public void showHome() {
@@ -185,10 +190,18 @@ public final class DashboardController {
             else if (!target.isInTouchMode()) { target.setFocusable(true); target.requestFocus(); }
         });
     }
+    private void scheduleHomeRefresh() {
+        root.removeCallbacks(refreshHome);
+        root.postDelayed(refreshHome, 120);
+    }
     private void renderHome() {
         if (searchMode || content == null) return;
         KeyguardManager keyguard = (KeyguardManager) activity.getSystemService(Context.KEYGUARD_SERVICE);
-        if ((notificationTouchOwner != null || railDragging) && !keyguard.isKeyguardLocked()) return;
+        if (!keyguard.isKeyguardLocked() && (notificationTouchOwner != null || railDragging
+                || feedTouching || android.os.SystemClock.uptimeMillis() - feedLastMotion < 180)) {
+            scheduleHomeRefresh(); return;
+        }
+        root.removeCallbacks(refreshHome);
         int offset = scroll.getScrollY();
         Object anchorTag = null; int anchorDelta = 0;
         for (int i = 0; i < content.getChildCount(); i++) {
@@ -533,7 +546,7 @@ public final class DashboardController {
                 }
                 if (lines.isEmpty()) lines.add(new CalendarEntry("No events in the next seven days", null));
             } catch (SecurityException | IllegalArgumentException e) { lines.add(new CalendarEntry("Calendar unavailable", null)); }
-            root.post(() -> { if (!destroyed) { calendarLines = lines; if (!searchMode) renderHome(); } });
+            root.post(() -> { if (!destroyed) { calendarLines = lines; if (!searchMode) scheduleHomeRefresh(); } });
         });
     }
     private void renderDock() {
@@ -769,8 +782,16 @@ public final class DashboardController {
     }
     private final class FeedScrollView extends ScrollView {
         FeedScrollView(Context context) { super(context); }
+        @Override public boolean dispatchTouchEvent(MotionEvent event) {
+            int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN) feedTouching = true;
+            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) feedTouching = false;
+            feedLastMotion = android.os.SystemClock.uptimeMillis();
+            return super.dispatchTouchEvent(event);
+        }
         @Override protected void onScrollChanged(int x, int y, int oldX, int oldY) {
             super.onScrollChanged(x, y, oldX, oldY);
+            if (y != oldY) feedLastMotion = android.os.SystemClock.uptimeMillis();
             if (!searchMode && scroll == this && homeRail != null) homeRail.invalidate();
         }
     }

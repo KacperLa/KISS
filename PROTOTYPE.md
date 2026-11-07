@@ -72,3 +72,5 @@ The native Home scrollbar is hidden. A contrasting circle moves on the right nav
 Call notifications (platform call category or CallStyle) center offered controls. Exact recognized English hang-up/mute/unmute labels use circular controls; unknown/localized labels retain text and real action intent. No controls are manufactured; microphone glyph reflects offered mute/unmute action, not an independently queried audio state. Material call/microphone vectors: Google Material Design Icons, Apache-2.0.
 
 Recognized exposed call speaker controls now use matching circular speaker icons. Explicit off actions use a slashed speaker; generic Speaker retains its original accessible label without claiming current routing state. Unknown audio-routing labels remain text.
+
+Home refreshes coalesce notification/calendar bursts and defer rebuilding during feed touches and flings (180ms quiet window), as well as rail/card gestures. Screen-lock content clearing remains immediate. This reduces known rebuild churn; physical-device flicker/performance still requires verification.
