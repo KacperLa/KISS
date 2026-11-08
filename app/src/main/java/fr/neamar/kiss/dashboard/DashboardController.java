@@ -69,6 +69,9 @@ public final class DashboardController {
     private List<CalendarEntry> calendarLines = Collections.singletonList(new CalendarEntry("Loading calendar…", null));
     private boolean destroyed;
     private boolean homeRefreshPending;
+    private final HomeRefreshState homeRefreshState = new HomeRefreshState();
+    private android.view.ViewTreeObserver.OnPreDrawListener pendingHomeRestore;
+    private android.view.ViewTreeObserver restoreObserver;
     private final Runnable refreshHome = () -> { homeRefreshPending = false; if (resumed && !searchMode && !destroyed) renderHome(); };
     private static final int BG = Color.rgb(8, 7, 12);
     private static final int CARD = Color.rgb(29, 25, 37);
@@ -76,14 +79,14 @@ public final class DashboardController {
     private final DataSetObserver observer = new DataSetObserver() {
         @Override public void onChanged() {
             if (searchMode) renderSearchResults();
-            else if (!searchMode) { scheduleHomeRefresh(); }
+            else if (!searchMode) { requestHomeRefresh(); }
         }
     };
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             if (!searchMode) {
                 if (Intent.ACTION_SCREEN_OFF.equals(intent.getAction())) renderHome();
-                else scheduleHomeRefresh();
+                else requestHomeRefresh();
             } else if (query != null && query.length() == 0) renderSearchResults();
         }
     };
@@ -108,8 +111,10 @@ public final class DashboardController {
             return insets;
         });
         root.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
-            if (appColumns() != renderedColumns) root.post(() -> { if (searchMode) renderSearchResults(); else renderHome(); });
-            else if (!searchMode) root.post(this::updateHomeTailPadding);
+            if (appColumns() != renderedColumns) {
+                if (searchMode) root.post(() -> { if (searchMode && !destroyed) renderSearchResults(); });
+                else requestHomeRefresh();
+            } else if (!searchMode) updateHomeTailPadding();
         });
         activity.adapter.registerDataSetObserver(observer);
         showHome();
@@ -149,10 +154,11 @@ public final class DashboardController {
         loadCalendar();
         if (!searchMode) renderHome();
     }
-    public void pause() { resumed = false; feedTouching = false; railDragging = false; notificationTouchOwner = null; cancelHomeRefresh(); if (registered) { activity.unregisterReceiver(receiver); registered = false; } }
+    public void pause() { resumed = false; feedTouching = false; railDragging = false; notificationTouchOwner = null; cancelHomeRefresh(); cancelHomeRestore(); homeRefreshState.navigationStarted(); if (registered) { activity.unregisterReceiver(receiver); registered = false; } }
     public void destroy() { destroyed = true; pause(); calendarExecutor.shutdownNow(); activity.adapter.unregisterDataSetObserver(observer); }
     public boolean back() { if (searchMode) { showHome(); return true; } return activity.isKissDefaultLauncher(); }
     public void showHome() {
+        cancelHomeRefresh(); cancelHomeRestore(); homeRefreshState.navigationStarted();
         searchMode = false; navigatingTag = false;
         if (query != null) query.clearFocus();
         activity.searchEditText.setText("");
@@ -179,34 +185,68 @@ public final class DashboardController {
         root.addView(searchFrame, new LinearLayout.LayoutParams(-1, 0, 1));
         renderHome();
     }
+    private void beginHomeNavigation() {
+        homeRefreshState.navigationStarted();
+        cancelHomeRestore();
+    }
+    private void stopFeedMotion() {
+        // Finish the zero-velocity frame before any direct rail or accessibility jump.
+        scroll.fling(0); scroll.computeScroll();
+    }
     private void jumpToSection(View target) {
         if (searchMode || target == null || !target.isAttachedToWindow()) return;
+        beginHomeNavigation(); stopFeedMotion();
         letterBubble.setVisibility(View.GONE);
-        ScrollView targetScroll = scroll;
-        targetScroll.post(() -> {
-            if (searchMode || scroll != targetScroll || !target.isAttachedToWindow()) return;
-            targetScroll.smoothScrollTo(0, target.getTop());
-            android.view.accessibility.AccessibilityManager manager = (android.view.accessibility.AccessibilityManager) activity.getSystemService(Context.ACCESSIBILITY_SERVICE);
-            if (manager.isTouchExplorationEnabled()) target.performAccessibilityAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS, null);
-            else if (!target.isInTouchMode()) { target.setFocusable(true); target.requestFocus(); }
-        });
+        scroll.smoothScrollTo(0, target.getTop());
+        android.view.accessibility.AccessibilityManager manager = (android.view.accessibility.AccessibilityManager) activity.getSystemService(Context.ACCESSIBILITY_SERVICE);
+        if (manager.isTouchExplorationEnabled()) target.performAccessibilityAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS, null);
+        else if (!target.isInTouchMode()) { target.setFocusable(true); target.requestFocus(); }
     }
     private void cancelHomeRefresh() {
         root.removeCallbacks(refreshHome); homeRefreshPending = false;
     }
+    private void requestHomeRefresh() {
+        homeRefreshState.requestRefresh();
+        scheduleHomeRefresh();
+    }
     private void scheduleHomeRefresh() {
-        if (destroyed || !resumed || searchMode || homeRefreshPending) return;
+        // Releasing a gesture only resumes existing work. It does not make the feed dirty.
+        if (!homeRefreshState.hasPendingRefresh() || destroyed || !resumed || searchMode || homeRefreshPending) return;
         homeRefreshPending = true;
         root.postDelayed(refreshHome, 120);
+    }
+    private void cancelHomeRestore() {
+        if (pendingHomeRestore != null && restoreObserver != null && restoreObserver.isAlive())
+            restoreObserver.removeOnPreDrawListener(pendingHomeRestore);
+        pendingHomeRestore = null; restoreObserver = null;
+    }
+    private void restoreHomeAfterLayout(Object anchorTag, int anchorDelta, int offset, Object focusTag) {
+        final long generation = homeRefreshState.generation();
+        ScrollView targetScroll = scroll; LinearLayout targetContent = content;
+        restoreObserver = targetScroll.getViewTreeObserver();
+        pendingHomeRestore = () -> {
+            if (!homeRefreshState.canRestore(generation) || scroll != targetScroll || content != targetContent
+                    || searchMode || destroyed || !resumed) { cancelHomeRestore(); return true; }
+            // The preview controls and final-group spacer must have their final measured sizes.
+            updateHomeTailPadding();
+            if (targetScroll.isLayoutRequested() || targetContent.isLayoutRequested()) return false;
+            cancelHomeRestore();
+            View anchor = anchorTag == null ? null : targetContent.findViewWithTag(anchorTag);
+            if (focusTag != null) { View replacement = targetContent.findViewWithTag(focusTag); if (replacement != null) replacement.requestFocus(); }
+            targetScroll.scrollTo(0, anchor == null ? offset : anchor.getTop() + anchorDelta);
+            return true;
+        };
+        restoreObserver.addOnPreDrawListener(pendingHomeRestore);
     }
     private void renderHome() {
         if (searchMode || content == null) return;
         KeyguardManager keyguard = (KeyguardManager) activity.getSystemService(Context.KEYGUARD_SERVICE);
         if (!keyguard.isKeyguardLocked() && (notificationTouchOwner != null || railDragging
                 || feedTouching || android.os.SystemClock.uptimeMillis() - feedLastMotion < 180)) {
-            scheduleHomeRefresh(); return;
+            requestHomeRefresh(); return;
         }
-        cancelHomeRefresh();
+        cancelHomeRefresh(); cancelHomeRestore(); homeRefreshState.rendered();
+        stopFeedMotion();
         int offset = scroll.getScrollY();
         Object anchorTag = null; int anchorDelta = 0;
         for (int i = 0; i < content.getChildCount(); i++) {
@@ -225,7 +265,7 @@ public final class DashboardController {
         Map<String, Integer> ranks = DashboardNotifications.ranks(notifications);
         Arrays.sort(notifications, Comparator.comparingInt(n -> ranks.getOrDefault(n.getKey(), Integer.MAX_VALUE)));
         if (notifications.length == 0) {
-            LinearLayout card = column();
+            LinearLayout card = column(); card.setTag("notifications-empty");
             card.addView(text("No available notifications. Notification access is optional and keeps content on this phone.", textSp, false));
             card.addView(button("Review notification access", () -> open(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)))); addCard(card);
         }
@@ -261,21 +301,13 @@ public final class DashboardController {
                 boolean expanded = expandedNotifications.contains(sbn.getKey());
                 bodyView.setMaxLines(expanded ? Integer.MAX_VALUE : 4);
                 bodyView.setEllipsize(expanded ? null : android.text.TextUtils.TruncateAt.END);
-                card.addView(bodyView);
                 TextView toggle = button(expanded ? "Show less" : "Show more", () -> {
                     if (expandedNotifications.contains(sbn.getKey())) expandedNotifications.remove(sbn.getKey());
                     else expandedNotifications.add(sbn.getKey());
                     renderHome();
                 });
                 toggle.setContentDescription((expanded ? "Collapse" : "Expand") + " notification from " + appName);
-                toggle.setVisibility(View.GONE); card.addView(toggle);
-                bodyView.post(() -> {
-                    android.text.Layout layout = bodyView.getLayout();
-                    if (layout == null || !bodyView.isAttachedToWindow()) return;
-                    int lines = layout.getLineCount();
-                    boolean overflow = lines > 4 || (lines > 0 && layout.getEllipsisCount(lines - 1) > 0);
-                    toggle.setVisibility(overflow ? View.VISIBLE : View.GONE);
-                });
+                card.addView(new NotificationPreview(bodyView, toggle));
             }
             boolean media = Notification.CATEGORY_TRANSPORT.equals(n.category) || n.extras.containsKey(Notification.EXTRA_MEDIA_SESSION)
                 || n.extras.containsKey("android.compactActions")
@@ -336,14 +368,28 @@ public final class DashboardController {
         int sectionIndex = content.getChildCount(); renderTasks(); tasksTarget = content.getChildAt(sectionIndex); tasksTarget.setTag("section-tasks");
         sectionIndex = content.getChildCount(); renderCalendar(); calendarTarget = content.getChildAt(sectionIndex); calendarTarget.setTag("section-calendar");
         renderAllApps(); renderDock();
-        Object savedAnchor = anchorTag; int savedDelta = anchorDelta;
-        ScrollView targetScroll = scroll; LinearLayout targetContent = content;
-        targetScroll.post(() -> {
-            if (scroll != targetScroll || content != targetContent || searchMode) return;
-            View anchor = savedAnchor == null ? null : targetContent.findViewWithTag(savedAnchor);
-            if (focusTag != null) { View replacement = targetContent.findViewWithTag(focusTag); if (replacement != null) replacement.requestFocus(); }
-            targetScroll.scrollTo(0, anchor == null ? offset : anchor.getTop() + savedDelta);
-        });
+        restoreHomeAfterLayout(anchorTag, anchorDelta, offset, focusTag);
+    }
+    /** Measure the expansion control with its text, never in a later posted layout. */
+    private final class NotificationPreview extends LinearLayout {
+        private final TextView body;
+        private final View toggle;
+        NotificationPreview(TextView body, View toggle) {
+            super(activity); setOrientation(VERTICAL); this.body = body; this.toggle = toggle;
+            toggle.setVisibility(GONE); addView(body); addView(toggle);
+        }
+        @Override protected void onMeasure(int widthSpec, int heightSpec) {
+            super.onMeasure(widthSpec, heightSpec);
+            android.text.Layout layout = body.getLayout();
+            if (layout == null) return;
+            int lines = layout.getLineCount();
+            boolean overflow = lines > 4 || (lines > 0 && layout.getEllipsisCount(lines - 1) > 0);
+            int visibility = overflow ? VISIBLE : GONE;
+            if (toggle.getVisibility() != visibility) {
+                toggle.setVisibility(visibility);
+                super.onMeasure(widthSpec, heightSpec);
+            }
+        }
     }
     private int mediaFallbackIcon(Notification.Action action, Context sourceContext) {
         String resourceName = "";
@@ -551,7 +597,7 @@ public final class DashboardController {
                 }
                 if (lines.isEmpty()) lines.add(new CalendarEntry("No events in the next seven days", null));
             } catch (SecurityException | IllegalArgumentException e) { lines.add(new CalendarEntry("Calendar unavailable", null)); }
-            root.post(() -> { if (!destroyed) { calendarLines = lines; if (!searchMode) scheduleHomeRefresh(); } });
+            root.post(() -> { if (!destroyed) { calendarLines = lines; if (!searchMode) requestHomeRefresh(); } });
         });
     }
     private void renderDock() {
@@ -607,6 +653,7 @@ public final class DashboardController {
     public void sharedSearch(String value) { showSearch(); query.setText(value); }
     public void permissionChanged() { loadCalendar(); if (!searchMode) renderHome(); }
     public void showSearch() {
+        cancelHomeRefresh(); cancelHomeRestore(); homeRefreshState.navigationStarted();
         searchMode = true; navigatingTag = false; root.removeAllViews(); dockView = null;
         LinearLayout header = row();
         query = new EditText(activity);
@@ -659,7 +706,7 @@ public final class DashboardController {
         return DashboardPolicy.columnsForLayout(wide, preferences.getInt(columnPreferenceKey(), 0));
     }
     private void renderAllApps() {
-        content.addView(text("All apps", textSp, true));
+        TextView title = text("All apps", textSp, true); title.setTag("section-apps"); content.addView(title);
         List<AppPojo> available = data().getApplicationsWithoutExcluded();
         if (available == null) { content.addView(text("Loading apps…", textSp, false)); return; }
         List<AppPojo> apps = new ArrayList<>(available);
@@ -688,7 +735,6 @@ public final class DashboardController {
             // Start with ample space so a refresh cannot clamp the final heading before measurement.
             content.addView(homeAppTail, new LinearLayout.LayoutParams(-1, Math.max(0, scroll.getHeight())));
             homeAppTail.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> updateHomeTailPadding());
-            root.post(this::updateHomeTailPadding);
         }
     }
     private void updateHomeTailPadding() {
@@ -754,6 +800,7 @@ public final class DashboardController {
     }
     private void showAlphabet(char letter) {
         if (searchMode) return;
+        beginHomeNavigation(); stopFeedMotion();
         letterBubble.setText(String.valueOf(letter)); letterBubble.setVisibility(View.VISIBLE);
         View target = alphabetTargets.get(letter);
         if (target == null) {
@@ -789,10 +836,27 @@ public final class DashboardController {
         FeedScrollView(Context context) { super(context); }
         @Override public boolean dispatchTouchEvent(MotionEvent event) {
             int action = event.getActionMasked();
-            if (action == MotionEvent.ACTION_DOWN) feedTouching = true;
+            if (action == MotionEvent.ACTION_DOWN) { feedTouching = true; beginHomeNavigation(); }
             if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) feedTouching = false;
             feedLastMotion = android.os.SystemClock.uptimeMillis();
-            return super.dispatchTouchEvent(event);
+            boolean handled = super.dispatchTouchEvent(event);
+            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) scheduleHomeRefresh();
+            return handled;
+        }
+        @Override public boolean executeKeyEvent(android.view.KeyEvent event) {
+            if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) beginHomeNavigation();
+            return super.executeKeyEvent(event);
+        }
+        @Override public boolean onGenericMotionEvent(MotionEvent event) {
+            if (event.getActionMasked() == MotionEvent.ACTION_SCROLL) beginHomeNavigation();
+            return super.onGenericMotionEvent(event);
+        }
+        @Override public boolean performAccessibilityAction(int action, android.os.Bundle arguments) {
+            if (action == android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+                    || action == android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+                    || (Build.VERSION.SDK_INT >= 23 && (action == android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP.getId()
+                    || action == android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN.getId()))) beginHomeNavigation();
+            return super.performAccessibilityAction(action, arguments);
         }
         @Override protected void onScrollChanged(int x, int y, int oldX, int oldY) {
             super.onScrollChanged(x, y, oldX, oldY);
@@ -815,7 +879,7 @@ public final class DashboardController {
                 scrubbing = Math.abs(event.getY() - thumb) <= dp(22) && Math.abs(event.getX() - getWidth() / 2f) <= dp(24);
                 grabOffset = scrubbing ? event.getY() - thumb : 0;
                 pointer = event.getPointerId(0); selected = -1; railDragging = true;
-                scroll.fling(0); scroll.computeScroll(); // Settle the zero-velocity frame before direct slider jumps.
+                beginHomeNavigation(); stopFeedMotion();
                 getParent().requestDisallowInterceptTouchEvent(true);
                 if (scrubbing) scrubTo(event.getY() - grabOffset); else selectAt(event.getY()); return true;
             }

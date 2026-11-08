@@ -74,3 +74,11 @@ Call notifications (platform call category or CallStyle) center offered controls
 Recognized exposed call speaker controls now use matching circular speaker icons. Explicit off actions use a slashed speaker; generic Speaker retains its original accessible label without claiming current routing state. Unknown audio-routing labels remain text.
 
 Home refreshes coalesce notification/calendar bursts and defer rebuilding during feed touches and flings (180ms quiet window), as well as rail/card gestures. Screen-lock content clearing remains immediate. This reduces known rebuild churn; physical-device flicker/performance still requires verification.
+
+## Stable feed position after scrolling (prototype 14)
+
+Ending a feed/card or navigation-rail gesture now only resumes a refresh that was already requested by changed data. It no longer requests an unconditional full rebuild. Real notification, calendar, favorites and provider updates still coalesce and wait for gestures/flings to settle; locked-screen clearing still bypasses that wait.
+
+Notification preview expansion controls are measured with their text rather than appearing in a posted second layout. A real rebuild restores the visible keyed row and its pixel offset before drawing, after preview controls and bottom spacing have settled. New navigation, a newer render, search, pause or destruction cancels obsolete restoration callbacks. Keyboard, mouse/rotary and accessibility scroll commands also invalidate old restorations.
+
+Regression checks added for dirty-refresh coalescing and generation invalidation. Physical-device checks remain required: unchanged-data feed/rail release after 1–2 seconds; long notifications above the viewport; updates during a fling/rail drag; final A–Z group; successive updates followed immediately by new navigation; expansion/collapse; notification removal; lock/unlock; TalkBack; and folding/column changes.
