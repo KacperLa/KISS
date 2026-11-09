@@ -11,6 +11,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.content.pm.LauncherApps;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.database.DataSetObserver;
@@ -48,6 +49,8 @@ public final class DashboardController {
     private EditText query;
     private TextView letterBubble;
     private View dockView;
+    private HorizontalScrollView dockScroll;
+    private boolean dockTouching;
     private View alphabetRail;
     private View notificationTarget, tasksTarget, calendarTarget;
     private View homeAppTail, homeLastHeading;
@@ -154,7 +157,7 @@ public final class DashboardController {
         loadCalendar();
         if (!searchMode) renderHome();
     }
-    public void pause() { resumed = false; feedTouching = false; railDragging = false; notificationTouchOwner = null; cancelHomeRefresh(); cancelHomeRestore(); homeRefreshState.navigationStarted(); if (registered) { activity.unregisterReceiver(receiver); registered = false; } }
+    public void pause() { resumed = false; feedTouching = false; dockTouching = false; railDragging = false; notificationTouchOwner = null; cancelHomeRefresh(); cancelHomeRestore(); homeRefreshState.navigationStarted(); if (registered) { activity.unregisterReceiver(receiver); registered = false; } }
     public void destroy() { destroyed = true; pause(); calendarExecutor.shutdownNow(); activity.adapter.unregisterDataSetObserver(observer); }
     public boolean back() { if (searchMode) { showHome(); return true; } return activity.isKissDefaultLauncher(); }
     public void showHome() {
@@ -242,7 +245,7 @@ public final class DashboardController {
         if (searchMode || content == null) return;
         KeyguardManager keyguard = (KeyguardManager) activity.getSystemService(Context.KEYGUARD_SERVICE);
         if (!keyguard.isKeyguardLocked() && (notificationTouchOwner != null || railDragging
-                || feedTouching || android.os.SystemClock.uptimeMillis() - feedLastMotion < 180)) {
+                || feedTouching || dockTouching || android.os.SystemClock.uptimeMillis() - feedLastMotion < 180)) {
             requestHomeRefresh(); return;
         }
         cancelHomeRefresh(); cancelHomeRestore(); homeRefreshState.rendered();
@@ -601,18 +604,20 @@ public final class DashboardController {
         });
     }
     private void renderDock() {
+        int dockOffset = dockScroll == null ? 0 : dockScroll.getScrollX();
         if (dockView != null) root.removeView(dockView);
         LinearLayout dockContainer = row(); dockView = dockContainer;
-        HorizontalScrollView dockScroll = new HorizontalScrollView(activity); LinearLayout dock = row(); dockScroll.addView(dock);
+        dockScroll = new DockScrollView(activity, dockOffset); LinearLayout dock = row(); dockScroll.addView(dock);
         dockContainer.addView(dockScroll, new LinearLayout.LayoutParams(0, -2, 1));
-        Set<String> used = new HashSet<>(); int limit = DashboardPolicy.favoriteCount(activity.getResources().getConfiguration().screenWidthDp);
+        Set<String> used = new HashSet<>();
         for (Pojo pojo : data().getFavorites()) {
-            if (!(pojo instanceof AppPojo) || pojo.isDisabled() || used.size() >= limit) continue;
-            used.add(pojo.id); dock.addView(appIcon(pojo));
+            if (!(pojo instanceof AppPojo) || pojo.isDisabled() || !used.add(pojo.id)) continue;
+            dock.addView(appIcon(pojo));
         }
         if (used.isEmpty()) dock.addView(button("Choose favorites", this::showSearch));
-        dock.addView(text("│", 30, false)); int count = 0;
-        for (AppPojo pojo : recentApps(8)) {
+        TextView divider = text("│", 30, false);
+        divider.setContentDescription(activity.getString(R.string.dashboard_recent_apps)); dock.addView(divider); int count = 0;
+        for (AppPojo pojo : recentApps(2, used)) {
             if (used.contains(pojo.id)) continue;
             used.add(pojo.id); dock.addView(appIcon(pojo)); if (++count == 2) break;
         }
@@ -631,8 +636,9 @@ public final class DashboardController {
         states.addState(new int[]{}, new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
         return new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x55D8BEFF), states, background(Color.WHITE));
     }
-    private List<AppPojo> recentApps(int count) {
-        List<AppPojo> recent = new ArrayList<>(); Set<String> seen = new HashSet<>();
+    private List<AppPojo> recentApps(int count) { return recentApps(count, Collections.emptySet()); }
+    private List<AppPojo> recentApps(int count, Set<String> excludedIds) {
+        List<AppPojo> recent = new ArrayList<>(); Set<String> seen = new HashSet<>(excludedIds);
         for (ValuedHistoryRecord record : DBHelper.getHistory(activity, 100, HistoryMode.RECENCY)) {
             Pojo pojo = data().getPojo(record.record);
             if (!(pojo instanceof AppPojo)) continue;
@@ -648,7 +654,7 @@ public final class DashboardController {
         image.setPadding(dp(8), dp(8), dp(8), dp(8)); image.setBackground(background(CARD));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(64), dp(64)); lp.setMargins(dp(3), dp(4), dp(3), dp(4)); image.setLayoutParams(lp);
         image.setFocusable(true); image.setOnClickListener(v -> { result.launch(activity, v, activity); showHome(); });
-        image.setOnLongClickListener(v -> { new AlertDialog.Builder(activity).setTitle(pojo.getName()).setItems(new String[]{"Remove favorite"}, (d, w) -> { data().removeFromFavorites(pojo.id); renderHome(); }).show(); return true; }); return image;
+        image.setOnLongClickListener(v -> { showAppActions(pojo); return true; }); return image;
     }
     public void sharedSearch(String value) { showSearch(); query.setText(value); }
     public void permissionChanged() { loadCalendar(); if (!searchMode) renderHome(); }
@@ -792,11 +798,34 @@ public final class DashboardController {
             navigatingTag = result.getPojo() instanceof TagDummyPojo;
             result.launch(activity, v, activity); if (!navigatingTag) showHome();
         });
-        item.setOnLongClickListener(v -> { Pojo pojo = result.getPojo(); boolean favorite = data().hasFavorite(pojo.id);
-            new AlertDialog.Builder(activity).setTitle(pojo.getName()).setItems(new String[]{favorite ? "Remove favorite" : "Add favorite"}, (d, which) -> {
-                if (favorite) data().removeFromFavorites(pojo.id); else data().addToFavorites(pojo.id);
-            }).show(); return true;
-        }); return item;
+        item.setOnLongClickListener(v -> { showAppActions(result.getPojo()); return true; }); return item;
+    }
+    private void showAppActions(Pojo pojo) {
+        boolean favorite = data().hasFavorite(pojo.id);
+        String favoriteAction = activity.getString(favorite ? R.string.menu_favorites_remove : R.string.menu_favorites_add);
+        String[] actions = pojo instanceof AppPojo
+            ? new String[]{favoriteAction, activity.getString(R.string.menu_app_details)}
+            : new String[]{favoriteAction};
+        new AlertDialog.Builder(activity).setTitle(pojo.getName()).setItems(actions, (dialog, which) -> {
+            if (which == 1 && pojo instanceof AppPojo) {
+                openAppInfo((AppPojo) pojo);
+            } else {
+                if (data().hasFavorite(pojo.id)) data().removeFromFavorites(pojo.id); else data().addToFavorites(pojo.id);
+                if (!searchMode) requestHomeRefresh();
+            }
+        }).show();
+    }
+    private void openAppInfo(AppPojo app) {
+        try {
+            LauncherApps launcher = ContextCompat.getSystemService(activity, LauncherApps.class);
+            if (launcher == null) {
+                Toast.makeText(activity, R.string.dashboard_app_info_unavailable, Toast.LENGTH_LONG).show(); return;
+            }
+            // Preserve the selected profile, including when the same package is installed twice.
+            launcher.startAppDetailsActivity(app.getComponent(), app.userHandle.getRealHandle(), null, null);
+        } catch (android.content.ActivityNotFoundException | SecurityException | IllegalArgumentException e) {
+            Toast.makeText(activity, R.string.dashboard_app_info_unavailable, Toast.LENGTH_LONG).show();
+        }
     }
     private void showAlphabet(char letter) {
         if (searchMode) return;
@@ -830,6 +859,27 @@ public final class DashboardController {
             Toast.makeText(activity, "This notification has expired", Toast.LENGTH_SHORT).show();
         } catch (SecurityException e) {
             Toast.makeText(activity, "Android could not open this notification", Toast.LENGTH_SHORT).show();
+        }
+    }
+    private final class DockScrollView extends HorizontalScrollView {
+        private int initialOffset;
+        DockScrollView(Context context, int offset) { super(context); initialOffset = offset; }
+        @Override protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+            super.onLayout(changed, left, top, right, bottom);
+            if (initialOffset >= 0) { scrollTo(initialOffset, 0); initialOffset = -1; }
+        }
+        @Override public boolean dispatchTouchEvent(MotionEvent event) {
+            int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN) { dockTouching = true; initialOffset = -1; }
+            boolean handled = super.dispatchTouchEvent(event);
+            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                dockTouching = false; feedLastMotion = android.os.SystemClock.uptimeMillis(); scheduleHomeRefresh();
+            }
+            return handled;
+        }
+        @Override protected void onScrollChanged(int x, int y, int oldX, int oldY) {
+            super.onScrollChanged(x, y, oldX, oldY);
+            if (dockScroll == this && initialOffset < 0) feedLastMotion = android.os.SystemClock.uptimeMillis();
         }
     }
     private final class FeedScrollView extends ScrollView {

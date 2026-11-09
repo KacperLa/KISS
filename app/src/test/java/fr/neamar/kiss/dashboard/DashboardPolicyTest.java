@@ -48,8 +48,4 @@ class DashboardPolicyTest {
         assertEquals(0, DashboardPolicy.initialLetter(""));
         assertEquals(0, DashboardPolicy.initialLetter(null));
     }
-    @Test void dockAdaptsToWidth() {
-        assertEquals(4, DashboardPolicy.favoriteCount(400));
-        assertEquals(5, DashboardPolicy.favoriteCount(800));
-    }
 }

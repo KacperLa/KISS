@@ -6,7 +6,7 @@ The approved visual references are retained separately in the owner's Space and 
 
 ## Implemented first pass
 - Full-width notification dashboard with app icons, Android ranking order, no persisted notification content, Open and Dismiss actions.
-- Bottom icon dock: up to five KISS favorite apps on wide screens, four on narrow screens, and two recently launched apps excluding favorites. The dock scrolls horizontally instead of shrinking targets.
+- Bottom icon dock: all KISS favorite apps, then two recently launched apps excluding favorites, separated by a divider. The dock scrolls horizontally instead of shrinking targets.
 - Local editable tasks and optional read-only device calendar events for the next week.
 - Home is feed-only, with a fixed quick-controls button at the far left of the bottom dock. Pull down from the top of the feed to search.
 - Existing KISS provider/query/history pipeline drives typed search. Empty search shows up to six recent apps followed by all apps in one continuous alphabetical list; A–Z jumps within that list. Search has only a back arrow and wide input. Long-press a result to choose favorites.
@@ -82,3 +82,23 @@ Ending a feed/card or navigation-rail gesture now only resumes a refresh that wa
 Notification preview expansion controls are measured with their text rather than appearing in a posted second layout. A real rebuild restores the visible keyed row and its pixel offset before drawing, after preview controls and bottom spacing have settled. New navigation, a newer render, search, pause or destruction cancels obsolete restoration callbacks. Keyboard, mouse/rotary and accessibility scroll commands also invalidate old restorations.
 
 Regression checks added for dirty-refresh coalescing and generation invalidation. Physical-device checks remain required: unchanged-data feed/rail release after 1–2 seconds; long notifications above the viewport; updates during a fling/rail drag; final A–Z group; successive updates followed immediately by new navigation; expansion/collapse; notification removal; lock/unlock; TalkBack; and folding/column changes.
+
+## App info and scrollable favorites (prototype 15)
+
+Long-press an app in Home, typed search, favorites or recents to open App info.
+Android receives the selected app component and user profile, not just its package.
+Unavailable or removed profiles/apps show an error instead of crashing or opening
+the same package in another profile. Non-app search results keep their favorite
+menu only. Favorite apps retain Remove favorite; recent apps now offer Add favorite.
+
+The former four/five-app dock display cap is removed. All enabled favorite apps
+stay in saved order, with recents after the existing divider and no duplicate
+favorites in recents. The whole strip scrolls horizontally at any screen width,
+keeping the 64dp icon targets. Routine refresh preserves horizontal position and
+waits for dock touches/flings to settle.
+
+Device QA still required: App info from Home/search/favorite/recent; Back and cancel;
+repeated long-press; add/remove favorites with 0, 4, 5 and 12 favorites; swipe to the
+last favorite and recents; notification refresh during dock swipe/fling; narrow/wide
+and folded layouts; TalkBack navigation; personal/work instances of the same app;
+app removal or profile restrictions while a menu is open.

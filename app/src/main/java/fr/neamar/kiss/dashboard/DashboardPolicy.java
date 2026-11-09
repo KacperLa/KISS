@@ -26,5 +26,4 @@ public final class DashboardPolicy {
         char initial = Character.toUpperCase(normalized.charAt(0));
         return initial >= 'A' && initial <= 'Z' ? initial : 0;
     }
-    public static int favoriteCount(int widthDp) { return widthDp >= 600 ? 5 : 4; }
 }
