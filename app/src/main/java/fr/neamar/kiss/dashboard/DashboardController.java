@@ -57,7 +57,11 @@ public final class DashboardController {
     private boolean railDragging;
     private ContinuousRail homeRail;
     private FrameLayout searchFrame;
-    private final Map<Character, View> alphabetTargets = new HashMap<>();
+    private final Map<Character, View> alphabetTargets = new TreeMap<>();
+    private final Map<Character, List<View>> alphabetGroups = new HashMap<>();
+    private final Set<View> letterPreviewHidden = new HashSet<>();
+    private String populatedLetters = "";
+    private char previewLetter;
     private int renderedColumns = 1;
     private final Set<String> expandedNotifications = new HashSet<>();
     private boolean navigatingTag;
@@ -157,10 +161,11 @@ public final class DashboardController {
         loadCalendar();
         if (!searchMode) renderHome();
     }
-    public void pause() { resumed = false; feedTouching = false; dockTouching = false; railDragging = false; notificationTouchOwner = null; cancelHomeRefresh(); cancelHomeRestore(); homeRefreshState.navigationStarted(); if (registered) { activity.unregisterReceiver(receiver); registered = false; } }
+    public void pause() { resetRailGesture(); resumed = false; feedTouching = false; dockTouching = false; railDragging = false; notificationTouchOwner = null; cancelHomeRefresh(); cancelHomeRestore(); homeRefreshState.navigationStarted(); if (registered) { activity.unregisterReceiver(receiver); registered = false; } }
     public void destroy() { destroyed = true; pause(); calendarExecutor.shutdownNow(); activity.adapter.unregisterDataSetObserver(observer); }
     public boolean back() { if (searchMode) { showHome(); return true; } return activity.isKissDefaultLauncher(); }
     public void showHome() {
+        resetRailGesture();
         cancelHomeRefresh(); cancelHomeRestore(); homeRefreshState.navigationStarted();
         searchMode = false; navigatingTag = false;
         if (query != null) query.clearFocus();
@@ -198,7 +203,7 @@ public final class DashboardController {
     }
     private void jumpToSection(View target) {
         if (searchMode || target == null || !target.isAttachedToWindow()) return;
-        beginHomeNavigation(); stopFeedMotion();
+        beginHomeNavigation(); stopFeedMotion(); clearLetterPreview();
         letterBubble.setVisibility(View.GONE);
         scroll.smoothScrollTo(0, target.getTop());
         android.view.accessibility.AccessibilityManager manager = (android.view.accessibility.AccessibilityManager) activity.getSystemService(Context.ACCESSIBILITY_SERVICE);
@@ -257,7 +262,8 @@ public final class DashboardController {
             if (child.getBottom() > offset && child.getTag() != null) { anchorTag = child.getTag(); anchorDelta = offset - child.getTop(); break; }
         }
         View focused = content.findFocus(); Object focusTag = focused == null ? null : focused.getTag();
-        content.removeAllViews(); alphabetTargets.clear();
+        resetRailGesture();
+        content.removeAllViews(); alphabetTargets.clear(); alphabetGroups.clear(); populatedLetters = "";
         notificationTarget = tasksTarget = calendarTarget = null; homeAppTail = homeLastHeading = null; renderedColumns = appColumns();
         if (keyguard.isKeyguardLocked()) {
             if (dockView != null) root.removeView(dockView);
@@ -659,6 +665,7 @@ public final class DashboardController {
     public void sharedSearch(String value) { showSearch(); query.setText(value); }
     public void permissionChanged() { loadCalendar(); if (!searchMode) renderHome(); }
     public void showSearch() {
+        resetRailGesture();
         cancelHomeRefresh(); cancelHomeRestore(); homeRefreshState.navigationStarted();
         searchMode = true; navigatingTag = false; root.removeAllViews(); dockView = null;
         LinearLayout header = row();
@@ -731,11 +738,19 @@ public final class DashboardController {
             heading.setTag("app-letter:" + letter);
             if (letter == '#') heading.setContentDescription("Numbers, symbols and other alphabets");
             androidx.core.view.ViewCompat.setAccessibilityHeading(heading, true);
+            int groupStart = content.getChildCount();
             content.addView(heading, new LinearLayout.LayoutParams(-1, -2));
-            if (letter != '#') alphabetTargets.put(letter, heading);
             homeLastHeading = heading;
             addAppGrid(group.getValue(), false);
+            if (letter != '#') {
+                alphabetTargets.put(letter, heading); populatedLetters += letter;
+                List<View> groupViews = new ArrayList<>();
+                for (int i = groupStart; i < content.getChildCount(); i++) groupViews.add(content.getChildAt(i));
+                alphabetGroups.put(letter, groupViews);
+            }
         }
+        if (alphabetRail != null) alphabetRail.invalidate();
+        if (homeRail != null) homeRail.invalidate();
         if (homeLastHeading != null) {
             homeAppTail = new View(activity); homeAppTail.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
             // Start with ample space so a refresh cannot clamp the final heading before measurement.
@@ -827,16 +842,39 @@ public final class DashboardController {
             Toast.makeText(activity, R.string.dashboard_app_info_unavailable, Toast.LENGTH_LONG).show();
         }
     }
+    private void clearLetterPreview() {
+        for (View view : letterPreviewHidden) view.setVisibility(View.VISIBLE);
+        letterPreviewHidden.clear(); previewLetter = 0;
+    }
+    private void resetRailGesture() {
+        if (homeRail != null) homeRail.resetGesture();
+        clearLetterPreview(); railDragging = false;
+        if (letterBubble != null) letterBubble.setVisibility(View.GONE);
+    }
+    private void previewLetterGroup(char letter) {
+        if (previewLetter == letter) return;
+        clearLetterPreview();
+        List<View> group = alphabetGroups.get(letter);
+        if (group == null) return;
+        previewLetter = letter;
+        // INVISIBLE keeps all anchor positions stable and removes other rows from accessibility.
+        // Releasing the rail restores the original feed without rebuilding or shifting any rows.
+        for (int i = 0; i < content.getChildCount(); i++) {
+            View child = content.getChildAt(i);
+            if (!group.contains(child) && child.getVisibility() == View.VISIBLE) {
+                letterPreviewHidden.add(child); child.setVisibility(View.INVISIBLE);
+            }
+        }
+    }
     private void showAlphabet(char letter) {
         if (searchMode) return;
-        beginHomeNavigation(); stopFeedMotion();
-        letterBubble.setText(String.valueOf(letter)); letterBubble.setVisibility(View.VISIBLE);
         View target = alphabetTargets.get(letter);
-        if (target == null) {
-            for (char next = letter; next <= 'Z'; next++) if (alphabetTargets.containsKey(next)) { target = alphabetTargets.get(next); break; }
-        }
-        if (target != null && target.isAttachedToWindow()) scroll.scrollTo(0, target.getTop());
-        else scroll.scrollTo(0, content.getHeight());
+        if (target == null || !target.isAttachedToWindow()) return;
+        beginHomeNavigation(); stopFeedMotion();
+        if (railDragging) previewLetterGroup(letter); else clearLetterPreview();
+        letterBubble.setText(String.valueOf(letter)); letterBubble.setVisibility(View.VISIBLE);
+        scroll.scrollTo(0, target.getTop());
+        if (homeRail != null) homeRail.invalidate();
     }
     private void open(Intent intent) { try { activity.startActivity(intent); } catch (android.content.ActivityNotFoundException | SecurityException e) { Toast.makeText(activity, "This action is unavailable on this device", Toast.LENGTH_LONG).show(); } }
     /** Called only by explicit card/action clicks while this launcher is resumed. */
@@ -937,14 +975,27 @@ public final class DashboardController {
             int index = event.findPointerIndex(pointer);
             if (action == MotionEvent.ACTION_CANCEL || action == MotionEvent.ACTION_UP
                 || (action == MotionEvent.ACTION_POINTER_UP && event.getPointerId(event.getActionIndex()) == pointer) || index < 0) {
-                pointer = -1; railDragging = false; getParent().requestDisallowInterceptTouchEvent(false);
-                if (letterBubble != null) letterBubble.setVisibility(View.GONE);
+                resetRailGesture();
                 scheduleHomeRefresh();
                 if (action == MotionEvent.ACTION_UP) performClick();
                 return true;
             }
             if (action == MotionEvent.ACTION_MOVE) { if (scrubbing) scrubTo(event.getY(index) - grabOffset); else selectAt(event.getY(index)); }
             return true;
+        }
+        private void resetGesture() {
+            pointer = -1; selected = -1; scrubbing = false;
+            if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(false);
+            invalidate();
+        }
+        private float letterY(char letter) {
+            View letters = getChildAt(3);
+            return letters.getTop() + alphabetInset(letters.getHeight())
+                + AlphabetNavigationPolicy.position(populatedLetters, letter, alphabetRange(letters.getHeight()));
+        }
+        private char letterAt(float y) {
+            View letters = getChildAt(3);
+            return AlphabetNavigationPolicy.at(populatedLetters, y - letters.getTop() - alphabetInset(letters.getHeight()), alphabetRange(letters.getHeight()));
         }
         private float[][] anchors() {
             List<Float> feed = new ArrayList<>(), rail = new ArrayList<>();
@@ -956,12 +1007,11 @@ public final class DashboardController {
                 }
             }
             if (getChildCount() >= 4) {
-                View letters = getChildAt(3); int inset = alphabetInset(letters.getHeight());
-                for (char letter = 'A'; letter <= 'Z'; letter++) {
+                for (char letter : populatedLetters.toCharArray()) {
                     View heading = alphabetTargets.get(letter);
                     if (heading != null && heading.isAttachedToWindow()) {
                         feed.add((float) heading.getTop());
-                        rail.add(letters.getTop() + inset + alphabetRange(letters.getHeight()) * (letter - 'A') / 25f);
+                        rail.add(letterY(letter));
                     }
                 }
             }
@@ -975,16 +1025,17 @@ public final class DashboardController {
             return new float[][]{contentPositions, railPositions};
         }
         private float indicatorY() {
+            if (previewLetter != 0) return letterY(previewLetter);
             float[][] points = anchors();
             return RailScrollMapping.interpolate(scroll.getScrollY(), points[0], points[1]);
         }
         private void scrubTo(float y) {
+            // Letters are discrete populated groups; section scrubbing remains continuous.
+            if (y >= getChildAt(3).getTop()) { selectAt(y); return; }
+            clearLetterPreview(); selected = -1;
             float[][] points = anchors();
             scroll.scrollTo(0, Math.round(RailScrollMapping.interpolate(y, points[1], points[0])));
-            View letters = getChildAt(3);
-            int next = RailNavigationPolicy.index(indicatorY(), getChildAt(0).getBottom(), getChildAt(1).getBottom(), letters.getTop(), letters.getBottom() - dp(24), alphabetInset(letters.getHeight()));
-            if (next >= 3) { letterBubble.setText(String.valueOf((char) ('A' + next - 3))); letterBubble.setVisibility(View.VISIBLE); }
-            else letterBubble.setVisibility(View.GONE);
+            letterBubble.setVisibility(View.GONE);
             invalidate();
         }
         @Override protected void dispatchDraw(android.graphics.Canvas canvas) {
@@ -995,9 +1046,9 @@ public final class DashboardController {
             canvas.drawCircle(x, y, radius, thumbPaint);
             View letters = getChildAt(3);
             if (y >= letters.getTop()) {
-                int index = DashboardPolicy.letterIndex(y - letters.getTop() - alphabetInset(letters.getHeight()), alphabetRange(letters.getHeight()));
+                char letter = letterAt(y);
                 thumbPaint.setColor(BG); thumbPaint.setTextSize(dp(22)); thumbPaint.setTypeface(Typeface.DEFAULT_BOLD); thumbPaint.setTextAlign(android.graphics.Paint.Align.CENTER);
-                canvas.drawText(String.valueOf((char) ('A' + index)), x, y - (thumbPaint.ascent() + thumbPaint.descent()) / 2f, thumbPaint);
+                if (letter != 0) canvas.drawText(String.valueOf(letter), x, y - (thumbPaint.ascent() + thumbPaint.descent()) / 2f, thumbPaint);
             } else {
                 int save = canvas.save(); android.graphics.Path clip = new android.graphics.Path(); clip.addCircle(x, y, radius, android.graphics.Path.Direction.CW); canvas.clipPath(clip);
                 android.graphics.Paint inverse = new android.graphics.Paint(); inverse.setColorFilter(new android.graphics.PorterDuffColorFilter(BG, android.graphics.PorterDuff.Mode.SRC_IN));
@@ -1008,9 +1059,14 @@ public final class DashboardController {
         private void selectAt(float y) {
             View letters = getChildAt(3);
             int next = RailNavigationPolicy.index(y, getChildAt(0).getBottom(), getChildAt(1).getBottom(), letters.getTop(), letters.getBottom() - dp(24), alphabetInset(letters.getHeight()));
+            if (next >= 3) {
+                char letter = letterAt(y);
+                if (letter != 0 && previewLetter != letter) showAlphabet(letter);
+                selected = -1; return;
+            }
+            clearLetterPreview();
             if (next == selected) return;
             selected = next;
-            if (next >= 3) { showAlphabet((char) ('A' + next - 3)); return; }
             View target = next == 0 ? notificationTarget : next == 1 ? tasksTarget : calendarTarget;
             if (target != null && target.isAttachedToWindow()) scroll.scrollTo(0, target.getTop());
             letterBubble.setVisibility(View.GONE);
@@ -1022,10 +1078,10 @@ public final class DashboardController {
     /** A proportional rail never clips A–Z at high Android font scaling. Selected letter is enlarged in content. */
     private final class AlphabetRail extends View {
         private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        private int selected;
+        private char selected;
         AlphabetRail(Context context) {
             super(context); setBackgroundColor(Color.TRANSPARENT); setFocusable(true); setClickable(true);
-            setContentDescription("Alphabet index. Swipe up or down to jump to a letter in the app list.");
+            setContentDescription("Alphabet index. Swipe up or down to jump between letters with apps.");
             paint.setColor(ACCENT); paint.setTextAlign(android.graphics.Paint.Align.CENTER);
             paint.setTypeface(Typeface.DEFAULT_BOLD);
         }
@@ -1035,30 +1091,35 @@ public final class DashboardController {
             paint.setTextSize(labelSize);
             float top = labelSize / 2f + dp(4), bottom = Math.max(top, getHeight() - top - dp(24));
             float baselineOffset = -(paint.ascent() + paint.descent()) / 2f;
-            canvas.drawText("A", getWidth() / 2f, top + baselineOffset, paint);
-            canvas.drawText("Z", getWidth() / 2f, bottom + baselineOffset, paint);
+            if (populatedLetters.isEmpty()) return;
+            canvas.drawText(String.valueOf(populatedLetters.charAt(0)), getWidth() / 2f, top + baselineOffset, paint);
+            if (populatedLetters.length() == 1) return;
+            canvas.drawText(String.valueOf(populatedLetters.charAt(populatedLetters.length() - 1)), getWidth() / 2f, bottom + baselineOffset, paint);
             for (int i = 1; i <= 5; i++) canvas.drawCircle(getWidth() / 2f,
                 top + (bottom - top) * i / 6f, dp(2), paint);
         }
         @Override public boolean onTouchEvent(MotionEvent event) {
             if (event.getActionMasked() == MotionEvent.ACTION_DOWN || event.getActionMasked() == MotionEvent.ACTION_MOVE) {
-                selected = DashboardPolicy.letterIndex(event.getY() - alphabetInset(getHeight()), alphabetRange(getHeight())); showAlphabet((char) ('A' + selected)); return true;
+                railDragging = true;
+                selected = AlphabetNavigationPolicy.at(populatedLetters, event.getY() - alphabetInset(getHeight()), alphabetRange(getHeight()));
+                showAlphabet(selected); return true;
             }
             if (event.getActionMasked() == MotionEvent.ACTION_UP || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
-                if (letterBubble != null) letterBubble.setVisibility(View.GONE); performClick(); return true;
+                resetRailGesture(); scheduleHomeRefresh(); performClick(); return true;
             }
             return super.onTouchEvent(event);
         }
         @Override public boolean performClick() { super.performClick(); return true; }
         @Override public void onInitializeAccessibilityNodeInfo(android.view.accessibility.AccessibilityNodeInfo info) {
-            super.onInitializeAccessibilityNodeInfo(info); info.setScrollable(true);
+            super.onInitializeAccessibilityNodeInfo(info); info.setScrollable(!populatedLetters.isEmpty());
             info.addAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD);
             info.addAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD);
         }
         @Override public boolean performAccessibilityAction(int action, android.os.Bundle arguments) {
             if (action == android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD || action == android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD) {
-                selected = Math.max(0, Math.min(25, selected + (action == android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD ? 1 : -1)));
-                showAlphabet((char) ('A' + selected)); announceForAccessibility(String.valueOf((char) ('A' + selected)));
+                selected = AlphabetNavigationPolicy.step(populatedLetters, selected, action == android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
+                if (selected == 0) return false;
+                resetRailGesture(); showAlphabet(selected); announceForAccessibility(String.valueOf(selected));
                 TextView bubble = letterBubble; root.postDelayed(() -> bubble.setVisibility(View.GONE), 1200); return true;
             }
             return super.performAccessibilityAction(action, arguments);

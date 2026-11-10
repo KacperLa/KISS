@@ -102,3 +102,26 @@ repeated long-press; add/remove favorites with 0, 4, 5 and 12 favorites; swipe t
 last favorite and recents; notification refresh during dock swipe/fling; narrow/wide
 and folded layouts; TalkBack navigation; personal/work instances of the same app;
 app removal or profile restrictions while a menu is open.
+
+
+## Populated-letter scrubbing (prototype 16)
+
+The letter rail selects only Latin initials with enabled, non-excluded apps. Its
+end labels reflect the first and last available letters. Dragging either the rail
+or its position circle shows only the selected heading and app group, with other
+feed rows temporarily invisible. Their layout positions stay intact, so release,
+cancel or moving back to a section restores the full feed without rebuilding or
+moving the selected heading. Normal feed scrolling and typed search are unchanged.
+Numbers, symbols and non-Latin names remain in the normal # group.
+
+Accessibility next/previous-letter actions skip empty letters too, retaining the
+full feed for ordinary screen-reader navigation. Empty and single-letter app lists
+are handled without an invalid selection. Refreshes still defer during the drag;
+pause, search, Home and lock-screen clearing cancel the temporary preview.
+
+Automated policy coverage checks sparse, full, empty, single and changed letter
+sets, both navigation directions, clamped endpoints and anchor consistency.
+Device QA remains required: drag through missing letters both ways; grab the
+circle; enter/leave notifications, tasks and calendar without lifting; release and
+cancel; sparse/empty lists; large groups and the final group; app updates during a
+drag; lock/unlock; search/Home; repeated gestures; TalkBack and folding/columns.

@@ -4,7 +4,8 @@ An Android launcher not spending time and memory on stuff you'd rather do.
 
 This accessible-dashboard prototype adds App info to app long-press menus in the
 Home list, search and dock. All favorite apps fit in a horizontally scrolling dock,
-followed by the separated recent apps. See [PROTOTYPE.md](PROTOTYPE.md).
+followed by the separated recent apps. The letter slider skips empty letters and
+previews only the selected app group during a drag. See [PROTOTYPE.md](PROTOTYPE.md).
 
 [Copylefted](https://en.wikipedia.org/wiki/Copyleft) libre software, licensed [GPLv3+](https://github.com/Neamar/KISS/blob/master/LICENSE):
 
